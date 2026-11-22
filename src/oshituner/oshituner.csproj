@@ -13,6 +13,12 @@
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.4.0" />
+    <Content Include="ThirdParty/ModelContextProtocol-*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <Import Project="Version.props" />
   <Import Project="BuildVersion.targets" />
 </Project>

@@ -13,6 +13,41 @@ internal sealed class TwitchApiClient(HttpClient httpClient, string clientId)
     public Task<IReadOnlyList<FollowedChannel>> GetFollowedChannelsAsync(TwitchAccess access, CancellationToken cancellationToken) =>
         GetPagesAsync<FollowedChannel>("channels/followed", access, cancellationToken);
 
+    public async Task<Dictionary<string, bool?>> GetSubscriptionsAsync(
+        TwitchAccess access, IReadOnlyList<FollowedChannel> channels, CancellationToken cancellationToken)
+    {
+        var results = new System.Collections.Concurrent.ConcurrentDictionary<string, bool?>(StringComparer.Ordinal);
+        var stop = 0;
+        await Parallel.ForEachAsync(channels, new ParallelOptions
+        {
+            CancellationToken = cancellationToken,
+            MaxDegreeOfParallelism = 4
+        }, async (channel, token) =>
+        {
+            if (Volatile.Read(ref stop) != 0) return;
+
+            var url = "https://api.twitch.tv/helix/subscriptions/user?user_id=" + Uri.EscapeDataString(access.UserId)
+                + "&broadcaster_id=" + Uri.EscapeDataString(channel.Id);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new("Bearer", access.AccessToken);
+            request.Headers.Add("Client-Id", clientId);
+            try
+            {
+                using var response = await httpClient.SendAsync(request, token);
+                if (response.IsSuccessStatusCode) results[channel.Id] = true;
+                else if (response.StatusCode == System.Net.HttpStatusCode.NotFound) results[channel.Id] = false;
+                else if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                    Interlocked.Exchange(ref stop, 1);
+                else results[channel.Id] = null;
+            }
+            catch (HttpRequestException)
+            {
+                results[channel.Id] = null;
+            }
+        });
+        return new Dictionary<string, bool?>(results, StringComparer.Ordinal);
+    }
+
     private async Task<IReadOnlyList<T>> GetPagesAsync<T>(string endpoint, TwitchAccess access, CancellationToken cancellationToken)
     {
         var items = new List<T>();

@@ -1,0 +1,21 @@
+<Window x:Class="oshituner.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="About Oshi Tuner" Width="460" SizeToContent="Height"
+        ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource WindowBackground}">
+    <StackPanel Margin="24">
+        <TextBlock Text="{Binding Name}" FontSize="24" FontWeight="Bold" />
+        <TextBlock Margin="0,4,0,4" Text="{Binding Version, StringFormat=App version {0}}" />
+        <TextBlock Margin="0,0,0,14" Text="{Binding TwitchVersion, StringFormat=Twitch integration {0}}" />
+        <TextBlock><Hyperlink Click="Repository_Click">GitHub repository</Hyperlink></TextBlock>
+        <TextBlock Margin="0,16,0,4" Text="Donations" FontWeight="Bold" />
+        <TextBlock Text="{Binding ThankYou}" TextWrapping="Wrap" />
+        <TextBlock Margin="0,4,0,0"><Hyperlink Click="Donations_Click">Support on Ko-fi</Hyperlink></TextBlock>
+        <TextBlock Margin="0,16,0,4" Text="Licenses" FontWeight="Bold" />
+        <TextBlock><Hyperlink Click="License_Click">Oshi Tuner · MIT</Hyperlink></TextBlock>
+        <TextBlock Margin="0,4,0,0"><Hyperlink Click="McpLicense_Click">MCP C# SDK · Apache-2.0 and MIT notices</Hyperlink></TextBlock>
+        <TextBlock x:Name="LinkStatus" Margin="0,8,0,0" TextWrapping="Wrap" />
+        <Button Margin="0,16,0,0" HorizontalAlignment="Right" Click="Close_Click">Close</Button>
+    </StackPanel>
+</Window>

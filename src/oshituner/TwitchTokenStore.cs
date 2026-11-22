@@ -7,10 +7,25 @@ using System.Runtime.Versioning;
 internal sealed class TokenStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private readonly string _path = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "oshituner",
-        "tokens.dat");
+    private readonly string _path;
+    private readonly string _legacyPath;
+
+    public TokenStore(oshituner.InstallProfile profile)
+    {
+        _path = profile.PathFor("tokens.dat");
+        _legacyPath = profile.LegacyTokenPath;
+    }
+
+    public bool CanAdoptLegacy => File.Exists(_legacyPath);
+
+    public void AdoptLegacy()
+    {
+        if (!HasSavedAuthorization && CanAdoptLegacy)
+        {
+            try { File.Move(_legacyPath, _path); }
+            catch (FileNotFoundException) { /* Another install adopted the token first. */ }
+        }
+    }
 
     public bool HasSavedAuthorization => File.Exists(_path);
 
@@ -60,4 +75,4 @@ internal sealed class TokenStore
 
 internal sealed record TwitchTokens(string AccessToken, string RefreshToken);
 
-internal sealed record TwitchAccess(string AccessToken, string UserId);
+internal sealed record TwitchAccess(string AccessToken, string UserId, bool CanReadSubscriptions);

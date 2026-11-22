@@ -10,6 +10,13 @@
         Foreground="#EFEFF1"
         Loaded="Window_Loaded"
         Closing="Window_Closing">
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_Help">
+                <MenuItem Header="_About" Click="About_Click" />
+                <MenuItem Header="Copy _Codex configuration" Click="CopyCodexConfiguration_Click" />
+            </MenuItem>
+        </Menu>
     <Grid Margin="28">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -22,7 +29,7 @@
         <Grid Grid.Row="0" Margin="0,0,0,22">
             <StackPanel>
                 <TextBlock Text="Oshi Tuner" FontSize="26" FontWeight="Bold" />
-                <TextBlock Text="Your followed channels, live at a glance"
+                <TextBlock Text="Live status and subs for your followed Twitch channels"
                            Foreground="{StaticResource MutedForeground}"
                            Margin="0,5,0,0" />
             </StackPanel>
@@ -44,7 +51,7 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Margin="0,0,14,0">
                     <TextBlock Text="Twitch application client ID" Foreground="{StaticResource MutedForeground}" Margin="0,0,0,6" />
-                    <TextBox x:Name="ClientIdTextBox" MaxLength="128" />
+                    <TextBox x:Name="ClientIdTextBox" MaxLength="128" TextChanged="ClientIdTextBox_TextChanged" />
                     <TextBlock Text="Client IDs are public identifiers. Your user authorization is stored encrypted for this Windows account."
                                Foreground="{StaticResource MutedForeground}"
                                FontSize="11"
@@ -80,12 +87,17 @@
                 <TextBlock Text="  ·  " Foreground="{StaticResource MutedForeground}" />
                 <TextBlock x:Name="LiveCountText" Text="0 live" FontSize="16" FontWeight="SemiBold" />
             </StackPanel>
-            <Button x:Name="RefreshButton" Content="Refresh now" Click="RefreshButton_Click" HorizontalAlignment="Right" Padding="13,7" />
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                <Button Content="Open on Twitch" Click="OpenChannel_Click" Margin="0,0,6,0" />
+                <Button Content="Sort…" Click="EditSort_Click" Margin="0,0,6,0" />
+                <Button x:Name="RefreshButton" Content="Refresh now" Click="RefreshButton_Click" />
+                <Button x:Name="CancelRefreshButton" Content="Cancel" Click="CancelAuthorizationButton_Click" Margin="6,0,0,0" Visibility="Collapsed" />
+            </StackPanel>
         </Grid>
 
         <Border Grid.Row="3" Background="{StaticResource PanelBackground}" CornerRadius="8">
             <Grid>
-                <DataGrid x:Name="FollowedChannelsGrid" ItemsSource="{Binding FollowedChannels}" AlternationCount="2">
+                <DataGrid x:Name="FollowedChannelsGrid" ItemsSource="{Binding FollowedChannels}" AlternationCount="2" CanUserSortColumns="False">
                     <DataGrid.Columns>
                         <DataGridTemplateColumn Header="STATUS" Width="92">
                             <DataGridTemplateColumn.CellTemplate>
@@ -105,6 +117,7 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="SUB" Binding="{Binding SubscriptionStatus}" Width="90" />
                         <DataGridTextColumn Header="CHANNEL" Binding="{Binding DisplayName}" Width="170" />
                         <DataGridTextColumn Header="LOGIN" Binding="{Binding Login}" Width="140" />
                         <DataGridTextColumn Header="CATEGORY" Binding="{Binding GameName}" Width="170" />
@@ -126,11 +139,14 @@
             </Grid>
         </Border>
 
+        <StackPanel Grid.Row="4">
         <TextBlock x:Name="MessageText"
-                   Grid.Row="4"
                    Text="Enter your Twitch application client ID to get started."
                    Foreground="{StaticResource MutedForeground}"
                    TextWrapping="Wrap"
                    Margin="2,14,2,0" />
+        <TextBlock x:Name="ControlStatus" Foreground="{StaticResource MutedForeground}" TextWrapping="Wrap" />
+        </StackPanel>
     </Grid>
+    </DockPanel>
 </Window>

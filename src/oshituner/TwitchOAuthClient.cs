@@ -9,6 +9,8 @@ using System.Text.Json.Serialization;
 internal sealed class TwitchOAuthClient(HttpClient httpClient, string clientId, TokenStore tokenStore)
 {
     private const string RequiredScope = "user:read:follows";
+    private const string SubscriptionsScope = "user:read:subscriptions";
+    private const string DeviceScopes = RequiredScope + " " + SubscriptionsScope;
     private static readonly Uri DeviceEndpoint = new("https://id.twitch.tv/oauth2/device");
     private static readonly Uri TokenEndpoint = new("https://id.twitch.tv/oauth2/token");
     private static readonly Uri ValidateEndpoint = new("https://id.twitch.tv/oauth2/validate");
@@ -23,10 +25,11 @@ internal sealed class TwitchOAuthClient(HttpClient httpClient, string clientId, 
             if (identity is not null)
             {
                 EnsureAuthorization(identity);
-                return new TwitchAccess(tokens.AccessToken, identity.UserId!);
+                if (HasSubscriptions(identity) || showDeviceCode is null)
+                    return ToAccess(tokens.AccessToken, identity);
             }
 
-            var refreshedTokens = await TryRefreshAsync(tokens.RefreshToken, cancellationToken);
+            var refreshedTokens = identity is null ? await TryRefreshAsync(tokens.RefreshToken, cancellationToken) : null;
             if (refreshedTokens is not null)
             {
                 await tokenStore.SaveAsync(refreshedTokens);
@@ -34,7 +37,8 @@ internal sealed class TwitchOAuthClient(HttpClient httpClient, string clientId, 
                 if (refreshedIdentity is not null)
                 {
                     EnsureAuthorization(refreshedIdentity);
-                    return new TwitchAccess(refreshedTokens.AccessToken, refreshedIdentity.UserId!);
+                    if (HasSubscriptions(refreshedIdentity) || showDeviceCode is null)
+                        return ToAccess(refreshedTokens.AccessToken, refreshedIdentity);
                 }
             }
         }
@@ -49,8 +53,14 @@ internal sealed class TwitchOAuthClient(HttpClient httpClient, string clientId, 
             ?? throw new InvalidOperationException("Twitch did not accept the newly issued access token.");
         EnsureAuthorization(newIdentity);
         await tokenStore.SaveAsync(tokens);
-        return new TwitchAccess(tokens.AccessToken, newIdentity.UserId!);
+        return ToAccess(tokens.AccessToken, newIdentity);
     }
+
+    private static bool HasSubscriptions(TwitchIdentity identity) =>
+        identity.Scopes?.Contains(SubscriptionsScope, StringComparer.Ordinal) == true;
+
+    private static TwitchAccess ToAccess(string token, TwitchIdentity identity) =>
+        new(token, identity.UserId!, HasSubscriptions(identity));
 
     private async Task<TwitchIdentity?> ValidateAsync(string accessToken, CancellationToken cancellationToken)
     {
@@ -108,7 +118,7 @@ internal sealed class TwitchOAuthClient(HttpClient httpClient, string clientId, 
         using var deviceResponse = await httpClient.PostAsync(DeviceEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["client_id"] = clientId,
-            ["scopes"] = RequiredScope
+            ["scopes"] = DeviceScopes
         }), cancellationToken);
         EnsureSuccess(deviceResponse, "start Twitch device authorization");
 
@@ -134,7 +144,7 @@ internal sealed class TwitchOAuthClient(HttpClient httpClient, string clientId, 
             using var tokenResponse = await httpClient.PostAsync(TokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["client_id"] = clientId,
-                ["scopes"] = RequiredScope,
+                ["scopes"] = DeviceScopes,
                 ["device_code"] = device.DeviceCode,
                 ["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code"
             }), cancellationToken);
