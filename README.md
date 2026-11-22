@@ -42,7 +42,7 @@ Create or refresh the local knowledge graph with:
 graphify update .
 ```
 
-In the app, enter the client ID if it is blank, then select **Connect Twitch**. Select **Open Twitch** and approve access using the displayed code. The app requests `user:read:follows` and `user:read:subscriptions`. It remembers the Client ID and stores encrypted authorization for each install folder under your Windows user profile. The `TWITCH_CLIENT_ID` environment variable overrides the saved ID.
+In the app, open **Plugins > Twitch > Client ID** to enter the ID if needed, then select **Connect Twitch**. Select **Open Twitch** and approve access using the displayed code. The app requests `user:read:follows` and `user:read:subscriptions`. It remembers the Client ID and stores encrypted authorization for each install folder under your Windows user profile. The `TWITCH_CLIENT_ID` environment variable overrides the saved ID.
 
 Use **Sort** to choose group priority and a secondary sort. Use **Open on Twitch** to manage follows and subs. Twitch lets the app check sub status for followed channels. Subs outside the follow list can be missing.
 

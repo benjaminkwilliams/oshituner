@@ -4,7 +4,6 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Threading;
 
 namespace oshituner;
@@ -21,7 +20,7 @@ public partial class MainWindow : Window
     private LocalControlHost? _host;
     private readonly CancellationTokenSource _lifetime = new();
     private Window? _about;
-    private bool _rendering;
+    private ClientIdWindow? _clientIdWindow;
 
     public MainWindow()
     {
@@ -31,7 +30,8 @@ public partial class MainWindow : Window
         try { _session = new(_profile, new HttpClient { Timeout = TimeSpan.FromSeconds(15) }); }
         catch { _instanceLock.Dispose(); throw; }
 
-        _control = new(_session, _profile, Dispatcher, ShowAbout, () => _about?.Close(), () => _about is not null);
+        _control = new(_session, _profile, Dispatcher, ShowAbout, () => _about?.Close(), () => _about is not null,
+            ShowClientId, () => _clientIdWindow?.Close(), () => _clientIdWindow is not null);
         DataContext = _viewModel;
         _session.Changed += RenderState;
         _refreshTimer.Tick += (_, _) => { if (!_session.Busy) Run(() => _control.Start("twitch", false)); };
@@ -71,13 +71,15 @@ public partial class MainWindow : Window
         if (shutdown is { } pending) _ = pending.AsTask();
     }
 
-    private void ClientIdTextBox_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        if (!_rendering && _control is not null)
-            Run(() => _control.SetClientId("twitch", ClientIdTextBox.Text));
-    }
+    private void ClientId_Click(object sender, RoutedEventArgs e) => _control.OpenClientId("twitch");
 
-    private void ConnectButton_Click(object sender, RoutedEventArgs e) => Run(() => _control.Start("twitch", true));
+    private void ConnectButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session.ClientId.Length == 0)
+            _control.OpenClientId("twitch");
+        else
+            Run(() => _control.Start("twitch", true));
+    }
     private void RefreshButton_Click(object sender, RoutedEventArgs e) => Run(() => _control.Start("twitch", false));
     private void CancelAuthorizationButton_Click(object sender, RoutedEventArgs e) => Run(() => _control.Cancel("twitch"));
     private void DisconnectButton_Click(object sender, RoutedEventArgs e) => Run(() => _control.Disconnect("twitch"));
@@ -110,6 +112,20 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() == true) Run(() => _control.SetSort(dialog.Selection));
     }
 
+    private void ShowClientId()
+    {
+        if (_clientIdWindow is not null)
+        {
+            _clientIdWindow.Activate();
+            return;
+        }
+
+        _clientIdWindow = new ClientIdWindow(_control, _session.ClientId, !_session.Busy && _session.UserId is null)
+            { Owner = this };
+        _clientIdWindow.Closed += (_, _) => _clientIdWindow = null;
+        _clientIdWindow.Show();
+    }
+
     private void ShowAbout()
     {
         if (_about is not null)
@@ -133,43 +149,37 @@ public partial class MainWindow : Window
 
     private void RenderState()
     {
-        _rendering = true;
-        try
-        {
-            if (ClientIdTextBox.Text.Trim() != _session.ClientId) ClientIdTextBox.Text = _session.ClientId;
-            var connected = _session.UserId is not null;
-            var authorizing = _session.ActivationUri is not null;
-            var busy = _session.Busy;
-            AuthorizationPanel.Visibility = VisibleWhen(authorizing);
-            OpenActivationButton.IsEnabled = authorizing;
-            AuthorizationCodeText.Text = _session.ActivationCode;
-            ListToolbar.Visibility = VisibleWhen(connected && !authorizing);
-            EmptyStatePanel.Visibility = VisibleWhen(!connected);
-            ConnectButton.Visibility = VisibleWhen(!busy && (!connected || !_session.CanReadSubscriptions));
-            ConnectButton.Content = connected ? "Enable subs" : "Connect Twitch";
-            DisconnectButton.Visibility = VisibleWhen(!busy && (connected || _session.HasSavedAuthorization));
-            CancelConnectButton.Visibility = VisibleWhen(busy && !authorizing);
-            ConnectionStatusText.Text = authorizing ? "Approve on Twitch"
-                : busy ? connected ? "Refreshing…" : "Checking Twitch…"
-                : connected ? "Connected" : "Not connected";
-            ClientIdTextBox.IsEnabled = !busy && !connected;
-            ConnectButton.IsEnabled = !busy;
-            DisconnectButton.IsEnabled = !busy;
-            RefreshButton.IsEnabled = !busy;
+        var connected = _session.UserId is not null;
+        var authorizing = _session.ActivationUri is not null;
+        var busy = _session.Busy;
+        AuthorizationPanel.Visibility = VisibleWhen(authorizing);
+        OpenActivationButton.IsEnabled = authorizing;
+        AuthorizationCodeText.Text = _session.ActivationCode;
+        ListToolbar.Visibility = VisibleWhen(connected && !authorizing);
+        EmptyStatePanel.Visibility = VisibleWhen(!connected);
+        ConnectButton.Visibility = VisibleWhen(!busy && (!connected || !_session.CanReadSubscriptions));
+        ConnectButton.Content = connected ? "Enable subs" : "Connect Twitch";
+        DisconnectButton.Visibility = VisibleWhen(!busy && (connected || _session.HasSavedAuthorization));
+        CancelConnectButton.Visibility = VisibleWhen(busy && !authorizing);
+        ConnectionStatusText.Text = authorizing ? "Approve on Twitch"
+            : busy ? connected ? "Refreshing…" : "Checking Twitch…"
+            : connected ? "Connected" : "Not connected";
+        _clientIdWindow?.SetEditable(!busy && !connected);
+        ConnectButton.IsEnabled = !busy;
+        DisconnectButton.IsEnabled = !busy;
+        RefreshButton.IsEnabled = !busy;
 
-            if (!ReferenceEquals(_renderedRows, _session.Channels))
-            {
-                _renderedRows = _session.Channels;
-                _viewModel.FollowedChannels.Clear();
-                foreach (var row in _renderedRows) _viewModel.FollowedChannels.Add(row);
-            }
-            FollowCountText.Text = $"{_session.Channels.Count} followed";
-            LiveCountText.Text = $"{_session.Channels.Count(row => row.IsLive)} live";
-            MessageText.Text = _session.Message;
-            if (connected) _refreshTimer.Start();
-            else _refreshTimer.Stop();
+        if (!ReferenceEquals(_renderedRows, _session.Channels))
+        {
+            _renderedRows = _session.Channels;
+            _viewModel.FollowedChannels.Clear();
+            foreach (var row in _renderedRows) _viewModel.FollowedChannels.Add(row);
         }
-        finally { _rendering = false; }
+        FollowCountText.Text = $"{_session.Channels.Count} followed";
+        LiveCountText.Text = $"{_session.Channels.Count(row => row.IsLive)} live";
+        MessageText.Text = _session.Message;
+        if (connected) _refreshTimer.Start();
+        else _refreshTimer.Stop();
     }
 
     private static Visibility VisibleWhen(bool condition) => condition ? Visibility.Visible : Visibility.Collapsed;

@@ -18,6 +18,14 @@ internal sealed class McpTunerTools
     public static Task<TunerState> SetClientId(TunerControl control, CancellationToken cancellationToken,
         string clientId, string provider = "twitch") => control.ChangeAsync(() => control.SetClientId(provider, clientId), cancellationToken);
 
+    [McpServerTool(Name = "open_client_id"), Description("Open the provider Client ID settings on the selected instance.")]
+    public static Task<TunerState> OpenClientId(TunerControl control, CancellationToken cancellationToken, string provider = "twitch") =>
+        control.ChangeAsync(() => control.OpenClientId(provider), cancellationToken);
+
+    [McpServerTool(Name = "close_client_id"), Description("Close the provider Client ID settings on the selected instance.")]
+    public static Task<TunerState> CloseClientId(TunerControl control, CancellationToken cancellationToken, string provider = "twitch") =>
+        control.ChangeAsync(() => control.CloseClientId(provider), cancellationToken);
+
     [McpServerTool(Name = "connect"), Description("Start connecting or upgrading Twitch permissions. Check state for browser approval.")]
     public static Task<TunerState> Connect(TunerControl control, CancellationToken cancellationToken, string provider = "twitch") =>
         control.ChangeAsync(() => control.Start(provider, true), cancellationToken);

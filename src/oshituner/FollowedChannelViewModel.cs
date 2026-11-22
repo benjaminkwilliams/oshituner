@@ -19,11 +19,18 @@ internal sealed record FollowedChannelRow(
     bool? Subbed,
     string GameName,
     string StreamTitle,
-    int ViewerCount)
+    int ViewerCount,
+    int? SubscriptionTier = null)
 {
     public bool IsLive => Online == true;
     public string Status => Online is true ? "LIVE" : Online is false ? "Offline" : "Unknown";
-    public string SubscriptionStatus => Subbed is true ? "Subbed" : Subbed is false ? "—" : "Unknown";
+    public string SubscriptionStatus => Subbed switch
+    {
+        true when SubscriptionTier is >= 1 and <= 3 => $"Tier{SubscriptionTier}",
+        true => "Subbed",
+        false => "—",
+        _ => "Unknown"
+    };
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<GridGroup>))]

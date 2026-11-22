@@ -13,10 +13,10 @@ internal sealed class TwitchApiClient(HttpClient httpClient, string clientId)
     public Task<IReadOnlyList<FollowedChannel>> GetFollowedChannelsAsync(TwitchAccess access, CancellationToken cancellationToken) =>
         GetPagesAsync<FollowedChannel>("channels/followed", access, cancellationToken);
 
-    public async Task<Dictionary<string, bool?>> GetSubscriptionsAsync(
+    public async Task<Dictionary<string, SubscriptionCheck>> GetSubscriptionsAsync(
         TwitchAccess access, IReadOnlyList<FollowedChannel> channels, CancellationToken cancellationToken)
     {
-        var results = new System.Collections.Concurrent.ConcurrentDictionary<string, bool?>(StringComparer.Ordinal);
+        var results = new System.Collections.Concurrent.ConcurrentDictionary<string, SubscriptionCheck>(StringComparer.Ordinal);
         var stop = 0;
         await Parallel.ForEachAsync(channels, new ParallelOptions
         {
@@ -34,18 +34,41 @@ internal sealed class TwitchApiClient(HttpClient httpClient, string clientId)
             try
             {
                 using var response = await httpClient.SendAsync(request, token);
-                if (response.IsSuccessStatusCode) results[channel.Id] = true;
-                else if (response.StatusCode == System.Net.HttpStatusCode.NotFound) results[channel.Id] = false;
+                if (response.IsSuccessStatusCode)
+                {
+                    results[channel.Id] = new(true, await ReadSubscriptionTierAsync(response.Content, token));
+                }
+                else if (response.StatusCode == System.Net.HttpStatusCode.NotFound) results[channel.Id] = new(false);
                 else if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
                     Interlocked.Exchange(ref stop, 1);
-                else results[channel.Id] = null;
+                else results[channel.Id] = default;
             }
             catch (HttpRequestException)
             {
-                results[channel.Id] = null;
+                results[channel.Id] = default;
             }
         });
-        return new Dictionary<string, bool?>(results, StringComparer.Ordinal);
+        return new Dictionary<string, SubscriptionCheck>(results, StringComparer.Ordinal);
+    }
+
+    private static async Task<int?> ReadSubscriptionTierAsync(HttpContent content, CancellationToken token)
+    {
+        try
+        {
+            var subscription = await content.ReadFromJsonAsync<SubscriptionResponse>(JsonOptions, token);
+            return subscription?.Data?.FirstOrDefault()?.Tier switch
+            {
+                "1000" => 1,
+                "2000" => 2,
+                "3000" => 3,
+                _ => null
+            };
+        }
+        catch (JsonException)
+        {
+            // A successful subscription check still confirms the sub when the tier cannot be read.
+            return null;
+        }
     }
 
     private async Task<IReadOnlyList<T>> GetPagesAsync<T>(string endpoint, TwitchAccess access, CancellationToken cancellationToken)
@@ -87,8 +110,14 @@ internal sealed class TwitchApiClient(HttpClient httpClient, string clientId)
         [property: JsonPropertyName("data")] List<T> Data,
         [property: JsonPropertyName("pagination")] Pagination? Pagination);
 
+    private sealed record SubscriptionResponse([property: JsonPropertyName("data")] SubscriptionEntry[]? Data);
+
+    private sealed record SubscriptionEntry([property: JsonPropertyName("tier")] string? Tier);
+
     private sealed record Pagination([property: JsonPropertyName("cursor")] string? Cursor);
 }
+
+internal readonly record struct SubscriptionCheck(bool? Subbed, int? Tier = null);
 
 internal sealed record LiveStream(
     [property: JsonPropertyName("user_id")] string UserId,

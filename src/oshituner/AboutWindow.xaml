@@ -10,7 +10,7 @@
         <TextBlock Margin="0,0,0,14" Text="{Binding TwitchVersion, StringFormat=Twitch integration {0}}" />
         <TextBlock><Hyperlink Click="Repository_Click">GitHub repository</Hyperlink></TextBlock>
         <TextBlock Margin="0,16,0,4" Text="Donations" FontWeight="Bold" />
-        <TextBlock Text="{Binding ThankYou}" TextWrapping="Wrap" />
+        <TextBlock x:Name="DonationAcknowledgment" Text="{Binding ThankYou}" TextWrapping="Wrap" />
         <TextBlock Margin="0,4,0,0"><Hyperlink Click="Donations_Click">Support on Ko-fi</Hyperlink></TextBlock>
         <TextBlock Margin="0,16,0,4" Text="Licenses" FontWeight="Bold" />
         <TextBlock><Hyperlink Click="License_Click">Oshi Tuner · MIT</Hyperlink></TextBlock>

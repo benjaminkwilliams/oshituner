@@ -152,6 +152,8 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
             case "get_sort": return control.GetSort();
             case "get_about": return AppInformation.Current;
             case "set_client_id": control.SetClientId(Provider(), Required<string>(args, "clientId")); break;
+            case "open_client_id": control.OpenClientId(Provider()); break;
+            case "close_client_id": control.CloseClientId(Provider()); break;
             case "connect": control.Start(Provider(), true); break;
             case "refresh": control.Start(Provider(), false); break;
             case "cancel": control.Cancel(Provider()); break;

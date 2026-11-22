@@ -19,7 +19,7 @@ internal sealed partial class TunerSession
     public bool HasSavedAuthorization => _tokens.HasSavedAuthorization;
     public Uri? ActivationUri { get; private set; }
     public string? ActivationCode { get; private set; }
-    public string Message { get; private set; } = "Enter your Twitch application client ID to get started.";
+    public string Message { get; private set; } = "Enter your Twitch Client ID under Plugins > Twitch > Client ID to get started.";
 
     public void SetClientId(string value)
     {
@@ -37,7 +37,7 @@ internal sealed partial class TunerSession
     public Task StartRefresh(bool allowSignIn)
     {
         RequireIdle();
-        if (ClientId.Length == 0) throw new InvalidOperationException("Enter your Twitch application client ID.");
+        if (ClientId.Length == 0) throw new InvalidOperationException("Enter your Twitch Client ID under Plugins > Twitch > Client ID.");
         return RefreshAsync(allowSignIn);
     }
 
@@ -75,7 +75,7 @@ internal sealed partial class TunerSession
             var follows = (await followed).DistinctBy(channel => channel.Id).ToArray();
             var subscriptions = access.CanReadSubscriptions
                 ? await api.GetSubscriptionsAsync(access, follows, operation.Token)
-                : new Dictionary<string, bool?>();
+                : new Dictionary<string, SubscriptionCheck>();
             operation.Token.ThrowIfCancellationRequested();
             SetChannels(follows, await live, subscriptions);
         }
@@ -137,21 +137,23 @@ internal sealed partial class TunerSession
         Changed?.Invoke();
     }
 
-    private void SetChannels(FollowedChannel[] follows, IReadOnlyList<LiveStream> live, Dictionary<string, bool?> subscriptions)
+    private void SetChannels(FollowedChannel[] follows, IReadOnlyList<LiveStream> live, Dictionary<string, SubscriptionCheck> subscriptions)
     {
         const int liveLimit = 2_000;
         var covered = follows.OrderBy(channel => channel.FollowedAt).Take(liveLimit)
             .Select(channel => channel.Id).ToHashSet(StringComparer.Ordinal);
         var streams = live.ToLookup(stream => stream.UserId, StringComparer.Ordinal);
-        var previous = _rows.ToDictionary(row => row.ChannelId, row => row.Subbed, StringComparer.Ordinal);
+        var previous = _rows.ToDictionary(row => row.ChannelId,
+            row => new SubscriptionCheck(row.Subbed, row.SubscriptionTier), StringComparer.Ordinal);
         _rows = Sort.Apply(follows.Select(channel =>
         {
             var stream = streams[channel.Id].FirstOrDefault();
             bool? online = stream is not null ? true : covered.Contains(channel.Id) ? false : null;
-            bool? subbed = subscriptions.TryGetValue(channel.Id, out var known)
-                ? known : CanReadSubscriptions ? previous.GetValueOrDefault(channel.Id) : null;
+            var subscription = subscriptions.TryGetValue(channel.Id, out var known)
+                ? known : CanReadSubscriptions ? previous.GetValueOrDefault(channel.Id) : default;
             return new FollowedChannelRow("twitch", channel.Id, channel.DisplayName, channel.Login, channel.FollowedAt,
-                true, online, subbed, stream?.GameName ?? "", stream?.Title ?? "", stream?.ViewerCount ?? 0);
+                true, online, subscription.Subbed, stream?.GameName ?? "", stream?.Title ?? "", stream?.ViewerCount ?? 0,
+                subscription.Tier);
         }));
 
         Message = follows.Length == 0 ? "You don’t follow any channels yet."

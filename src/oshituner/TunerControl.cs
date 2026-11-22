@@ -7,12 +7,13 @@ namespace oshituner;
 
 internal sealed class TunerControl(
     TunerSession session, InstallProfile profile, Dispatcher dispatcher,
-    Action openAbout, Action closeAbout, Func<bool> isAboutOpen)
+    Action openAbout, Action closeAbout, Func<bool> isAboutOpen,
+    Action openClientId, Action closeClientId, Func<bool> isClientIdOpen)
 {
     public TunerState GetState() => new(1, profile.InstallFolder, AppInformation.Current.Version, AppInformation.Current.TwitchVersion,
         [new("twitch", session.ClientId, session.UserId, session.Busy, session.HasSavedAuthorization,
             session.ActivationUri is not null, session.CanReadSubscriptions, session.Message)],
-        session.Channels.Count, session.Channels.Count(row => row.IsLive), isAboutOpen());
+        session.Channels.Count, session.Channels.Count(row => row.IsLive), isAboutOpen(), isClientIdOpen());
 
     public FollowedChannelRow[] GetChannels(bool? online = null, bool? subbed = null) =>
         session.Channels.Where(row => (!online.HasValue || row.Online == online)
@@ -22,6 +23,18 @@ internal sealed class TunerControl(
     {
         RequireTwitch(provider);
         session.SetClientId(clientId);
+    }
+
+    public void OpenClientId(string provider)
+    {
+        RequireTwitch(provider);
+        openClientId();
+    }
+
+    public void CloseClientId(string provider)
+    {
+        RequireTwitch(provider);
+        closeClientId();
     }
 
     public void Start(string provider, bool allowSignIn)
@@ -107,7 +120,7 @@ internal sealed class TunerControl(
 }
 
 internal sealed record TunerState(int ApiVersion, string InstallFolder, string Version, string TwitchVersion,
-    ProviderState[] Accounts, int ChannelCount, int LiveCount, bool AboutOpen);
+    ProviderState[] Accounts, int ChannelCount, int LiveCount, bool AboutOpen, bool ClientIdOpen);
 
 internal sealed record ProviderState(string Provider, string ClientId, string? UserId, bool Busy,
     bool HasSavedAuthorization, bool ActivationPending, bool CanReadSubscriptions, string Message);
@@ -123,7 +136,7 @@ internal sealed record AppInformation(string Name, string Version, string Twitch
         "Oshi Tuner", typeof(AppInformation).Assembly.GetName().Version!.ToString(),
         typeof(AppInformation).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(entry => entry.Key == "TwitchVersion").Value!,
         RepositoryUrl,
-        "Thank you to Shadow Hexmatyar for their support.", "https://ko-fi.com/bkwilliams",
+        "Thank you to the following for their support!\n\nShadow Hexmatyar", "https://ko-fi.com/bkwilliams",
         [
             new("Oshi Tuner", "MIT", RepositoryUrl + "/blob/main/LICENSE"),
             new("MCP C# SDK", "Apache-2.0 and MIT notices", "https://github.com/modelcontextprotocol/csharp-sdk/blob/4cbf42ef107763f0bc75c358af8cb2dfe47a769a/LICENSE")
