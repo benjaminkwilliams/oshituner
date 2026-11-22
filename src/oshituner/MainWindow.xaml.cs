@@ -28,7 +28,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         _profile = new();
         _instanceLock = _profile.Lock();
-        try { _session = new(_profile, new HttpClient()); }
+        try { _session = new(_profile, new HttpClient { Timeout = TimeSpan.FromSeconds(15) }); }
         catch { _instanceLock.Dispose(); throw; }
 
         _control = new(_session, _profile, Dispatcher, ShowAbout, () => _about?.Close(), () => _about is not null);
@@ -141,18 +141,22 @@ public partial class MainWindow : Window
             var authorizing = _session.ActivationUri is not null;
             var busy = _session.Busy;
             AuthorizationPanel.Visibility = VisibleWhen(authorizing);
+            OpenActivationButton.IsEnabled = authorizing;
             AuthorizationCodeText.Text = _session.ActivationCode;
             ListToolbar.Visibility = VisibleWhen(connected && !authorizing);
             EmptyStatePanel.Visibility = VisibleWhen(!connected);
-            ConnectButton.Visibility = VisibleWhen(!connected || !_session.CanReadSubscriptions);
+            ConnectButton.Visibility = VisibleWhen(!busy && (!connected || !_session.CanReadSubscriptions));
             ConnectButton.Content = connected ? "Enable subs" : "Connect Twitch";
-            DisconnectButton.Visibility = VisibleWhen(connected || _session.HasSavedAuthorization);
-            ConnectionStatusText.Text = connected ? "Connected" : busy ? "Connecting…" : "Not connected";
+            DisconnectButton.Visibility = VisibleWhen(!busy && (connected || _session.HasSavedAuthorization));
+            CancelConnectButton.Visibility = VisibleWhen(busy && !authorizing);
+            ConnectionStatusText.Text = authorizing ? "Approve on Twitch"
+                : busy ? connected ? "Refreshing…" : "Checking Twitch…"
+                : connected ? "Connected" : "Not connected";
             ClientIdTextBox.IsEnabled = !busy && !connected;
             ConnectButton.IsEnabled = !busy;
             DisconnectButton.IsEnabled = !busy;
             RefreshButton.IsEnabled = !busy;
-            CancelRefreshButton.Visibility = VisibleWhen(busy && !authorizing);
+
             if (!ReferenceEquals(_renderedRows, _session.Channels))
             {
                 _renderedRows = _session.Channels;

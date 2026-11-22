@@ -59,6 +59,7 @@
                 </StackPanel>
                 <Button x:Name="ConnectButton" Grid.Column="1" Content="Connect Twitch" Click="ConnectButton_Click" VerticalAlignment="Center" Margin="0,0,8,0" />
                 <Button x:Name="DisconnectButton" Grid.Column="2" Content="Disconnect" Click="DisconnectButton_Click" VerticalAlignment="Center" Visibility="Collapsed" />
+                <Button x:Name="CancelConnectButton" Grid.Column="2" Content="Cancel" Click="CancelAuthorizationButton_Click" VerticalAlignment="Center" Visibility="Collapsed" />
             </Grid>
         </Border>
 
@@ -91,7 +92,7 @@
                 <Button Content="Open on Twitch" Click="OpenChannel_Click" Margin="0,0,6,0" />
                 <Button Content="Sort…" Click="EditSort_Click" Margin="0,0,6,0" />
                 <Button x:Name="RefreshButton" Content="Refresh now" Click="RefreshButton_Click" />
-                <Button x:Name="CancelRefreshButton" Content="Cancel" Click="CancelAuthorizationButton_Click" Margin="6,0,0,0" Visibility="Collapsed" />
+
             </StackPanel>
         </Grid>
 

@@ -83,12 +83,16 @@ internal sealed partial class TunerSession
         {
             Message = "Twitch operation canceled.";
         }
+        catch (OperationCanceledException)
+        {
+            Message = "Twitch did not respond in time. Try again.";
+        }
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
         {
             EndSession("Twitch rejected the session. Connect again to continue.");
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException
-            or InvalidOperationException or JsonException or OperationCanceledException)
+            or InvalidOperationException or JsonException)
         {
             Message = ex is HttpRequestException or InvalidOperationException
                 ? ex.Message
