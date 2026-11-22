@@ -2,7 +2,11 @@
 
 A small Windows WPF app that shows which Twitch channels you follow are live.
 
-## Setup
+## Install on Windows
+
+Download the Windows x64 setup executable from [GitHub Releases](https://github.com/benjaminkwilliams/oshituner/releases/latest). The per-user installer includes the .NET runtime and adds **Oshi Tuner** to the Start menu.
+
+## Build from source
 
 1. Register a Twitch application in the [Twitch Developer Console](https://dev.twitch.tv/console). Configure it as a **public** application that supports the device code grant. The app does not need a client secret.
 2. To prefill the application's client ID, set it in PowerShell:
@@ -56,6 +60,6 @@ The same loopback host exposes JSON-RPC 2.0 at `/rpc`. Send a POST with the Bear
 
 Local builds increment the app Build number in each checkout. The Twitch Build number advances when a `Twitch*.cs` source file changes. Open **Help > About** to see both versions.
 
-`src/oshituner/Version.props` records the official versions. When preparing an outside PR for integration, fetch the latest official branch, stage or commit the PR changes, and run `./scripts/Set-OfficialVersion.ps1` from that integration checkout. Commit the resulting version change. The pull request check verifies the assigned app and Twitch versions against the official base. CI builds stamp the versions from `Version.props`.
+`src/oshituner/Version.props` records the official versions. When preparing an outside PR for integration, fetch the latest official branch, stage or commit the PR changes, and run `./scripts/Set-OfficialVersion.ps1` from that integration checkout. Commit the resulting version change. The pull request check verifies the assigned app and Twitch versions against the official base. CI builds stamp the versions from `Version.props`. To publish the Windows installer, push a Git tag on `main` that matches the official app version, such as `v1.0.0.1`. The release workflow tests installation and uninstallation before attaching the setup executable to the GitHub Release. To build the installer locally with Inno Setup 6 installed, run `./scripts/Build-WindowsInstaller.ps1`.
 
 See [docs/twitch-api.md](docs/twitch-api.md) for the API, authorization flow, and operational details.

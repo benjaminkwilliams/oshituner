@@ -1,0 +1,100 @@
+name: Release Windows installer
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify official version tag
+        shell: pwsh
+        run: |
+          $version = ([xml](Get-Content src/oshituner/Version.props -Raw)).Project.PropertyGroup.OshiOfficialVersion
+          if ($env:GITHUB_REF_NAME -cne "v$version") { throw "Expected tag v$version." }
+          git merge-base --is-ancestor HEAD origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'Release tags must point to a commit on the official main branch.' }
+      - name: Build self-contained installer
+        shell: pwsh
+        run: ./scripts/Build-WindowsInstaller.ps1 -OutputDirectory "${env:RUNNER_TEMP}/oshi-release"
+      - name: Smoke-test installation and uninstallation
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $setup = "$env:RUNNER_TEMP/oshi-release/Oshi-Tuner-$version-win-x64-Setup.exe"
+          $install = Join-Path $env:RUNNER_TEMP 'oshi-install-smoke'
+          $quiet = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
+          $result = Start-Process -FilePath $setup -ArgumentList ($quiet + @('/SP-', "/DIR=`"$install`"")) -WindowStyle Hidden -Wait -PassThru
+          if ($result.ExitCode -ne 0) { throw "Installer exit code $($result.ExitCode)." }
+
+          $app = Join-Path $install 'oshituner.exe'
+          $runtime = Get-Content (Join-Path $install 'oshituner.runtimeconfig.json') -Raw | ConvertFrom-Json
+          $frameworks = $runtime.runtimeOptions.includedFrameworks.name
+          foreach ($expected in @('Microsoft.NETCore.App','Microsoft.WindowsDesktop.App','Microsoft.AspNetCore.App')) {
+            if ($expected -notin $frameworks) { throw "Missing runtime $expected." }
+          }
+          if ([Reflection.AssemblyName]::GetAssemblyName((Join-Path $install 'oshituner.dll')).Version.ToString() -ne $version) {
+            throw 'Installed app version does not match the release tag.'
+          }
+          if (-not (Test-Path (Join-Path $install 'LICENSE.txt')) -or
+              -not (Test-Path (Join-Path $install 'ThirdParty/ModelContextProtocol-LICENSE.txt'))) {
+            throw 'Installed license files are missing.'
+          }
+          $process = Start-Process -FilePath $app -WindowStyle Hidden -Environment @{ TWITCH_CLIENT_ID = $null } -PassThru
+          try {
+            if ($process.WaitForExit(3000)) { throw "Installed app exited with code $($process.ExitCode)." }
+          } finally {
+            if (-not $process.HasExited) {
+              if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(3000)) { Stop-Process -InputObject $process }
+            }
+          }
+
+          $uninstall = @(Get-ChildItem -LiteralPath $install -Filter 'unins*.exe')
+          if ($uninstall.Count -ne 1) { throw 'Expected one uninstaller.' }
+          $result = Start-Process -FilePath $uninstall[0].FullName -ArgumentList $quiet -WindowStyle Hidden -Wait -PassThru
+          if ($result.ExitCode -ne 0 -or (Test-Path -LiteralPath $app)) { throw 'Uninstallation did not remove the app.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: ${{ runner.temp }}/oshi-release/*-Setup.exe
+          if-no-files-found: error
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: installer
+      - name: Publish release and installer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="Oshi-Tuner-${GITHUB_REF_NAME#v}-win-x64-Setup.exe"
+          test -f "installer/$asset"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > release-assets.txt 2>/dev/null; then
+            grep -Fx "$asset" release-assets.txt
+          else
+            gh release create "$GITHUB_REF_NAME" "installer/$asset" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --title "Oshi Tuner ${GITHUB_REF_NAME#v}" \
+              --notes "Self-contained Windows x64 installer. Installs for the current Windows user."
+          fi
