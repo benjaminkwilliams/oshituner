@@ -3,6 +3,7 @@
 ## Project
 
 - Oshi Tuner is a Windows WPF application targeting .NET 10. Build it with `dotnet build src/oshituner/oshituner.csproj`.
+- When verification needs a separate build, reuse the ignored `.plans/verification-build` folder. From the repository root run `dotnet build src/oshituner/oshituner.csproj -o .plans/verification-build -warnaserror`.
 - For Twitch OAuth, Helix requests, token storage, or followed-channel changes, read [.github/skills/twitch-api/SKILL.md](.github/skills/twitch-api/SKILL.md).
 
 ## Skills
