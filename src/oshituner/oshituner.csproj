@@ -9,6 +9,10 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <UseWPF>true</UseWPF>
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
+  <Import Project="Version.props" />
+  <Import Project="BuildVersion.targets" />
 </Project>

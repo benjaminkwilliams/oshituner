@@ -13,8 +13,13 @@
 !/src/oshituner/
 !/src/oshituner/**/
 !/src/oshituner/oshituner.csproj
+!/src/oshituner/Version.props
+!/src/oshituner/BuildVersion.targets
+!/scripts/
+!/scripts/Set-OfficialVersion.ps1
 !/src/oshituner/**/*.cs
 !/src/oshituner/**/*.xaml
+!/src/oshituner/ThirdParty/ModelContextProtocol-*.txt
 
 # Shared skills and supporting documentation
 !/.agents/
@@ -26,9 +31,17 @@
 !/.agents/skills/**/*.cjs
 !/.agents/skills/graphify/.graphify_version
 !/.github/
-!/.github/skills/
-!/.github/skills/twitch-api/
-!/.github/skills/twitch-api/SKILL.md
+!/.github/workflows/
+!/.github/workflows/build.yml
+!/.github/
+!/.github/workflows/
+!/.github/workflows/build.ymlskills/
+!/.github/
+!/.github/workflows/
+!/.github/workflows/build.ymlskills/twitch-api/
+!/.github/
+!/.github/workflows/
+!/.github/workflows/build.ymlskills/twitch-api/SKILL.md
 !/docs/
 !/docs/twitch-api.md
 !/docs/agents/
@@ -47,3 +60,7 @@
 **/.env
 **/.env.*
 /graphify-out/
+/src/oshituner/.build/
+
+# Local plans and implementation tasks
+/.plans/

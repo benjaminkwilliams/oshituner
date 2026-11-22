@@ -1,0 +1,27 @@
+name: Build Windows app
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify external PR version
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        shell: pwsh
+        env:
+          OFFICIAL_BASE: ${{ github.event.pull_request.base.sha }}
+        run: ./scripts/Set-OfficialVersion.ps1 -OfficialRef $env:OFFICIAL_BASE -Check
+      - run: dotnet build src/oshituner/oshituner.csproj -warnaserror -p:ContinuousIntegrationBuild=true

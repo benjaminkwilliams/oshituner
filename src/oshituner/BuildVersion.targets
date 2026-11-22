@@ -1,0 +1,93 @@
+<Project>
+  <UsingTask TaskName="AllocateOshiBuildVersion" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <OfficialVersion ParameterType="System.String" Required="true" />
+      <StateFile ParameterType="System.String" Required="true" />
+      <ComputedVersion ParameterType="System.String" Output="true" />
+      <FingerprintFiles ParameterType="Microsoft.Build.Framework.ITaskItem[]" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Threading" />
+      <Using Namespace="System.Linq" />
+      <Using Namespace="System.Security.Cryptography" />
+      <Using Namespace="System.Text" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        var baseline = Version.Parse(OfficialVersion);
+        Directory.CreateDirectory(Path.GetDirectoryName(StateFile));
+        FileStream gate = null;
+        for (var attempt = 0; gate == null; attempt++)
+        {
+            try { gate = new FileStream(StateFile + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+            catch (IOException) when (attempt < 100) { Thread.Sleep(50); }
+        }
+
+        using (gate)
+        {
+            var build = baseline.Revision;
+            var fingerprint = "";
+            if (FingerprintFiles != null && FingerprintFiles.Length > 0)
+            {
+                using (var sha = SHA256.Create())
+                {
+                    var keys = FingerprintFiles.Select(item => item.ItemSpec).OrderBy(path => path, StringComparer.Ordinal);
+                    var input = string.Join("\n", keys.Select(path => Path.GetFileName(path)
+                        + ":" + Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(File.ReadAllText(path).Replace("\r\n", "\n"))))));
+                    fingerprint = Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(input)));
+                }
+            }
+            if (File.Exists(StateFile))
+            {
+                var state = File.ReadAllLines(StateFile);
+                var last = Version.Parse(state[0]);
+                if (last.Major == baseline.Major && last.Minor == baseline.Minor && last.Build == baseline.Build)
+                {
+                    var unchanged = fingerprint.Length > 0 && state.Length > 1 && state[1] == fingerprint;
+                    build = Math.Max(build, unchanged ? last.Revision : checked(last.Revision + 1));
+                }
+            }
+            if (build > 65534)
+                throw new InvalidOperationException("The build counter is exhausted. Advance the official version prefix.");
+
+            ComputedVersion = new Version(baseline.Major, baseline.Minor, baseline.Build, build).ToString();
+            var staging = StateFile + ".new";
+            File.WriteAllLines(staging, new[] { ComputedVersion, fingerprint });
+            if (File.Exists(StateFile))
+                File.Replace(staging, StateFile, null);
+            else
+                File.Move(staging, StateFile);
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+  <Target Name="SetOshiBuildVersion" BeforeTargets="GetAssemblyVersion" Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_OshiBuildVersion>$(OshiOfficialVersion)</_OshiBuildVersion>
+      <_OshiTwitchVersion>$(OshiOfficialTwitchVersion)</_OshiTwitchVersion>
+    </PropertyGroup>
+    <AllocateOshiBuildVersion OfficialVersion="$(OshiOfficialVersion)"
+                             StateFile="$(MSBuildProjectDirectory)/.build/version"
+                             Condition="'$(OshiUseOfficialVersion)' != 'true' and '$(ContinuousIntegrationBuild)' != 'true'">
+      <Output TaskParameter="ComputedVersion" PropertyName="_OshiBuildVersion" />
+    </AllocateOshiBuildVersion>
+    <ItemGroup>
+      <_OshiTwitchSource Include="$(MSBuildProjectDirectory)/Twitch*.cs" />
+    </ItemGroup>
+    <AllocateOshiBuildVersion OfficialVersion="$(OshiOfficialTwitchVersion)"
+                             StateFile="$(MSBuildProjectDirectory)/.build/twitch-version"
+                             FingerprintFiles="@(_OshiTwitchSource)"
+                             Condition="'$(OshiUseOfficialVersion)' != 'true' and '$(ContinuousIntegrationBuild)' != 'true'">
+      <Output TaskParameter="ComputedVersion" PropertyName="_OshiTwitchVersion" />
+    </AllocateOshiBuildVersion>
+    <ItemGroup>
+      <AssemblyMetadata Include="TwitchVersion" Value="$(_OshiTwitchVersion)" />
+    </ItemGroup>
+    <PropertyGroup>
+      <Version>$(_OshiBuildVersion)</Version>
+      <AssemblyVersion>$(_OshiBuildVersion)</AssemblyVersion>
+      <FileVersion>$(_OshiBuildVersion)</FileVersion>
+      <InformationalVersion>$(_OshiBuildVersion)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
+</Project>
