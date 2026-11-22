@@ -13,6 +13,10 @@
 - Use `diagnosing-bugs` for debugging, `tdd` for test-first work, and `code-review` for diff review. For user-requested requirements or implementation workflows, read the named skill, such as `grill-me`, `grill-with-docs`, `implement`, or `implement-spec`.
 - Keep [skills-lock.json](skills-lock.json) in version control. Update installed skills with `npx skills@latest update --project` when maintaining the skill set.
 
+## Local planning
+
+Keep plans and implementation tasks as Markdown in the ignored `.plans/` folder. When resuming planned work, open `.plans/README.md` and the relevant task file. Record scope, decisions, progress, and verification there.
+
 ## Standalone `/push`
 
 When the user's entire message is `/push`, it authorizes this sequence:
