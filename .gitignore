@@ -1,0 +1,49 @@
+# Keep the repository limited to build inputs and shared development files.
+# A new source or support file type needs an explicit exception here.
+*
+!/.gitignore
+!/LICENSE
+!/README.md
+!/AGENTS.md
+!/GLOSSARY.md
+!/skills-lock.json
+
+# WPF project
+!/src/
+!/src/oshituner/
+!/src/oshituner/**/
+!/src/oshituner/oshituner.csproj
+!/src/oshituner/**/*.cs
+!/src/oshituner/**/*.xaml
+
+# Shared skills and supporting documentation
+!/.agents/
+!/.agents/skills/
+!/.agents/skills/**/
+!/.agents/skills/**/*.md
+!/.agents/skills/**/*.yaml
+!/.agents/skills/**/*.sh
+!/.agents/skills/**/*.cjs
+!/.agents/skills/graphify/.graphify_version
+!/.github/
+!/.github/skills/
+!/.github/skills/twitch-api/
+!/.github/skills/twitch-api/SKILL.md
+!/docs/
+!/docs/twitch-api.md
+!/docs/agents/
+!/docs/agents/*.md
+!/docs/adr/
+!/docs/adr/*.md
+
+# Generated and local files inside shared trees
+**/[Bb]in/
+**/[Oo]bj/
+**/.vs/
+**/.vscode/
+**/.codex/
+**/node_modules/
+**/TestResults/
+**/.env
+**/.env.*
+/graphify-out/
