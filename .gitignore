@@ -19,6 +19,7 @@
 !/scripts/
 !/scripts/Set-OfficialVersion.ps1
 !/scripts/Build-WindowsInstaller.ps1
+!/scripts/Guard-BrowserHost.ps1
 !/installer/
 !/installer/OshiTuner.iss
 !/browser/

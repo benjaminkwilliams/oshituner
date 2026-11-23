@@ -27,6 +27,11 @@
     <Content Include="ThirdParty/ModelContextProtocol-*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <Target Name="CheckOshiTunerOutputLock" BeforeTargets="PrepareForBuild"
+          Condition="'$(OS)' == 'Windows_NT' and '$(DesignTimeBuild)' != 'true' and Exists('$(TargetDir)$(TargetName).exe')">
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/../../scripts/Guard-BrowserHost.ps1&quot; -Mode Check -Executable &quot;$(TargetDir)$(TargetName).exe&quot;" />
+  </Target>
+
   <Import Project="Version.props" />
   <Import Project="BuildVersion.targets" />
 </Project>
