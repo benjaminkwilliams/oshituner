@@ -158,6 +158,11 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
         switch (method)
         {
             case "get_state": return control.GetState();
+            case "get_oshi": return control.GetOshi();
+            case "set_oshi": return control.SetOshi(Required<OshiSettings>(args, "settings"));
+            case "set_oshi_running": return control.SetOshiRunning(Required<bool>(args, "running"));
+            case "add_oshi_channel": return control.AddOshiChannel(new(Provider(), Required<string>(args, "channelId")),
+                Optional<string?>(args, "rankId"));
             case "get_channels": return control.GetChannels(Optional<bool?>(args, "online"), Optional<bool?>(args, "subbed"));
             case "get_browser_pairings": return control.GetBrowserPairings();
             case "set_browser_pairing": return control.SetBrowserPairing(Required<string>(args, "browser"),

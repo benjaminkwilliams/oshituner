@@ -18,6 +18,7 @@
             </MenuItem>
             <MenuItem Header="_Windows">
                 <MenuItem Header="_Twitch Status" Click="ShowTwitchStatus_Click" />
+                <MenuItem Header="_Oshi" Click="ShowOshi_Click" />
             </MenuItem>
             <MenuItem Header="_Plugins">
                 <MenuItem Header="_Twitch">

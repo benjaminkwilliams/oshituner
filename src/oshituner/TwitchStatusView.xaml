@@ -47,6 +47,7 @@
                     <DataGrid.ContextMenu>
                         <ContextMenu Opened="ChannelMenu_Opened">
                             <MenuItem Header="Copy Twitch login" Click="CopyLogin_Click" />
+                            <MenuItem x:Name="AddOshiMenu" Header="Add to Oshi" />
                         </ContextMenu>
                     </DataGrid.ContextMenu>
                     <DataGrid.Columns>

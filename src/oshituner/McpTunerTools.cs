@@ -10,6 +10,23 @@ internal sealed class McpTunerTools
     public static Task<TunerState> GetState(TunerControl control, CancellationToken cancellationToken) =>
         control.OnUiAsync(control.GetState, cancellationToken);
 
+    [McpServerTool(Name = "get_oshi"), Description("Read saved channel ranks, browser limits, current assignments, and scheduling state.")]
+    public static Task<OshiState> GetOshi(TunerControl control, CancellationToken cancellationToken) =>
+        control.OnUiAsync(control.GetOshi, cancellationToken);
+
+    [McpServerTool(Name = "set_oshi"), Description("Replace saved Oshi settings. Read get_oshi first and preserve ranks and preferences outside the requested edit.")]
+    public static Task<OshiState> SetOshi(TunerControl control, CancellationToken cancellationToken, OshiSettings settings) =>
+        control.OnUiAsync(() => control.SetOshi(settings), cancellationToken);
+
+    [McpServerTool(Name = "add_oshi_channel"), Description("Rank a followed or subscribed Status channel. Omit rankId to create a new rank.")]
+    public static Task<OshiState> AddOshiChannel(TunerControl control, CancellationToken cancellationToken,
+        string channelId, string provider = "twitch", string? rankId = null) =>
+        control.OnUiAsync(() => control.AddOshiChannel(new(provider, channelId), rankId), cancellationToken);
+
+    [McpServerTool(Name = "set_oshi_running"), Description("Start or pause Oshi automation in the selected installation.")]
+    public static Task<OshiState> SetOshiRunning(TunerControl control, CancellationToken cancellationToken, bool running) =>
+        control.OnUiAsync(() => control.SetOshiRunning(running), cancellationToken);
+
     [McpServerTool(Name = "get_channels"), Description("Query channels in the displayed order. Omitting a filter includes unknown values.")]
     public static Task<FollowedChannelRow[]> GetChannels(TunerControl control, CancellationToken cancellationToken,
         bool? online = null, bool? subbed = null) => control.OnUiAsync(() => control.GetChannels(online, subbed), cancellationToken);

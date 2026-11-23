@@ -60,7 +60,11 @@ jobs:
             if ($process.WaitForExit(3000)) { throw "Installed app exited with code $($process.ExitCode)." }
           } finally {
             if (-not $process.HasExited) {
-              if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(3000)) { Stop-Process -InputObject $process }
+              $exitRequest = Start-Process -FilePath $app -ArgumentList '--exit' -WindowStyle Hidden -Wait -PassThru
+              if ($exitRequest.ExitCode -ne 0 -or -not $process.WaitForExit(6000)) {
+                if (-not $process.HasExited) { Stop-Process -InputObject $process }
+                throw 'The installed desktop app did not exit cleanly.'
+              }
             }
           }
 

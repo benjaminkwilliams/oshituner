@@ -22,6 +22,7 @@
     <Content Include="../../browser/player-recovery.js" Link="browser/edge/player-recovery.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../browser/player-recovery.js" Link="browser/chrome/player-recovery.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.4.0" />
     <PackageReference Include="SkiaSharp" Version="3.119.4" />
     <Content Include="../../static/images/vtuber-viewer-background-4k-v2.png" Link="static/images/vtuber-viewer-background-4k-v2.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

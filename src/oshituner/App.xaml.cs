@@ -9,9 +9,11 @@ public partial class App : Application
     {
         try
         {
-            var browserRegistration = new BrowserRegistration(new InstallProfile());
+            var profile = new InstallProfile();
+            var browserRegistration = new BrowserRegistration(profile);
             if (remove)
             {
+                await DesktopTray.RequestExitAsync(profile);
                 foreach (var target in BrowserRegistration.Targets)
                     if (browserRegistration.Unpair(target))
                         await BrowserDiscovery.WakeUnregisteredHostAsync(browserRegistration, target);
@@ -44,9 +46,23 @@ public partial class App : Application
         }
     }
 
+    private async void ExitRunningDesktop() =>
+        Shutdown(await DesktopTray.RequestExitAsync(new InstallProfile()) ? 0 : 1);
+
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        if (MainWindow is MainWindow desktop) desktop.AllowSystemExit();
+        base.OnSessionEnding(e);
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (e.Args is ["--exit"])
+        {
+            ExitRunningDesktop();
+            return;
+        }
         if (e.Args is ["--browser-setup"] or ["--remove-browser-pairings"])
         {
             RunBrowserSetup(e.Args[0] == "--remove-browser-pairings");
@@ -66,7 +82,7 @@ public partial class App : Application
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            MessageBox.Show("Could not open this copy of Oshi Tuner. Close any running copy from the same folder and check your Windows profile permissions.",
+            MessageBox.Show("Could not open this copy of Oshi Tuner. Exit any running copy from the same folder using its tray menu and check your Windows profile permissions.",
                 "Oshi Tuner", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }

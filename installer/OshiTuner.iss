@@ -42,7 +42,7 @@ begin
   Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
     ExpandConstant('{tmp}\Guard-BrowserHost.ps1') + '" -Mode ' + Mode +
-    ' -Executable "' + ExpandConstant('{app}\oshituner.exe') + '"',
+    ' -Executable "' + ExpandConstant('{app}\oshituner.exe') + '" -ExitDesktop',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
@@ -65,7 +65,7 @@ begin
   if not RunBrowserGuard('Suspend') then
   begin
     ResumeBrowsers;
-    Result := 'Could not pause the Oshi Tuner browser helpers. Close Oshi Tuner and exit the paired browsers, then try setup again.';
+    Result := 'Could not pause the Oshi Tuner browser helpers. Exit Oshi Tuner from the system tray and exit the paired browsers, then try setup again.';
   end;
 end;
 

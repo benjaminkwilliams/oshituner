@@ -15,6 +15,8 @@ public partial class MainWindow : Window
     private readonly TunerSession _session;
     private readonly TunerControl _control;
     private readonly TwitchStatusView _statusView = new();
+    private readonly OshiView _oshiView = new();
+    private readonly OshiCoordinator _oshi;
     private readonly DockWorkspace _workspace;
     private readonly ThemeController _theme;
     private ThemeWindow? _themeWindow;
@@ -26,6 +28,12 @@ public partial class MainWindow : Window
     private ClientIdWindow? _clientIdWindow;
     private BrowserIntegrationWindow? _browserIntegration;
     private readonly BrowserRegistration _browsers;
+    private readonly DesktopTray _tray;
+    private readonly List<Window> _hiddenWindows = [];
+    private WindowState _restoreState;
+    private bool _exitRequested;
+    private bool _stoppingDesktop;
+    private bool _hiddenToTray;
 
     public MainWindow()
     {
@@ -38,13 +46,28 @@ public partial class MainWindow : Window
         _browsers = new(_profile);
         _workspace = new DockWorkspace(this, _session, ReportError);
         _workspace.Register("twitch-status", "Twitch Status", _statusView, _statusView.FocusGrid);
+        _workspace.Register("oshi", "Oshi", _oshiView, _oshiView.FocusRanked);
+        _oshi = _session.CreateOshiCoordinator();
         WorkspaceHost.Content = _workspace;
         _theme = new(_session, _workspace, _profile);
         _theme.Apply();
         _control = new(_session, _profile, Dispatcher, ShowAbout, () => _about?.Close(), () => _about is not null,
             ShowClientId, () => _clientIdWindow?.Close(), () => _clientIdWindow is not null,
             _browsers, ShowBrowserIntegration, () => _browserIntegration?.Close(), _workspace,
-            _theme, ShowTheme, () => _themeWindow?.Close());
+            _theme, ShowTheme, () => _themeWindow?.Close(), _oshi);
+        _oshiView.SaveRequested = settings => Run(() => _control.SetOshi(settings));
+        _oshiView.RunningRequested = running => Run(() => _control.SetOshiRunning(running));
+        _oshi.Changed += RenderOshi;
+        _session.Changed += RenderOshi;
+        _statusView.RankChoices = row => _session.CanRank(new(row.Provider, row.ChannelId)) &&
+            !_session.Oshi.Ranks.Any(group => group.Channels.Any(entry => entry.Channel == new OshiChannelKey(row.Provider, row.ChannelId)))
+            ? _session.Oshi.Ranks.Select(group => group.Id).ToArray() : null;
+        _statusView.AddOshiRequested = (row, rank) => Run(() =>
+        {
+            _control.AddOshiChannel(new(row.Provider, row.ChannelId), rank);
+            _control.OpenPane("oshi");
+        });
+        RenderOshi();
         _statusView.RefreshRequested = () => Run(() => _control.Start("twitch", false));
         _statusView.IntervalChanged = minutes => Run(() => _control.SetAutoRefresh(minutes));
         _statusView.EditSortRequested = EditSort;
@@ -54,7 +77,20 @@ public partial class MainWindow : Window
         _watchTimer.Tick += (_, _) => UpdateWatchTabs();
         _refreshTimer.Tick += (_, _) => { if (!_session.Busy) Run(() => _control.Start("twitch", false)); };
         RenderState();
+
+        _restoreState = WindowState;
+        _tray = new(Dispatcher, RestoreFromTray, ExitDesktop);
+        StateChanged += (_, _) =>
+        {
+            if (WindowState == WindowState.Minimized) HideToTray();
+            else _restoreState = WindowState;
+        };
+        _ = DesktopTray.ObserveExitAsync(_profile, ExitDesktop, _lifetime.Token);
     }
+
+    private void RenderOshi() => _oshiView.Render(_control.GetOshi(), _session.CanRank);
+
+    private void ShowOshi_Click(object sender, RoutedEventArgs e) => Run(() => _control.OpenPane("oshi"));
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
@@ -85,8 +121,61 @@ public partial class MainWindow : Window
         }
     }
 
+    internal void AllowSystemExit() => _exitRequested = true;
+
+    private async void ExitDesktop()
+    {
+        if (_exitRequested || _stoppingDesktop) return;
+        _stoppingDesktop = true;
+        _oshi.SetRunning(false);
+        _lifetime.Cancel();
+        var host = _host;
+        _host = null;
+        if (host is not null)
+        {
+            try { await host.DisposeAsync(); }
+            catch (OperationCanceledException) { }
+        }
+        _exitRequested = true;
+        Close();
+    }
+
+    private void HideToTray()
+    {
+        if (_hiddenToTray || _exitRequested || _stoppingDesktop) return;
+        _hiddenToTray = true;
+        _hiddenWindows.AddRange(OwnedWindows.OfType<Window>().Where(window => window.IsVisible));
+        foreach (var window in _hiddenWindows) window.Hide();
+        Hide();
+    }
+
+    private void RestoreFromTray()
+    {
+        if (_hiddenToTray)
+        {
+            WindowState = _restoreState;
+            Show();
+            _hiddenToTray = false;
+            foreach (var window in _hiddenWindows)
+                if (OwnedWindows.OfType<Window>().Contains(window)) window.Show();
+            _hiddenWindows.Clear();
+        }
+        Activate();
+    }
+
     private void Window_Closing(object sender, CancelEventArgs e)
     {
+        if (!_exitRequested)
+        {
+            e.Cancel = true;
+            Dispatcher.BeginInvoke(HideToTray);
+            return;
+        }
+
+        _tray.Dispose();
+        _oshi.Changed -= RenderOshi;
+        _session.Changed -= RenderOshi;
+        _oshi.Dispose();
         _workspace.Stop();
         _theme.Dispose();
         _lifetime.Cancel();

@@ -54,7 +54,7 @@ internal sealed partial class DockWorkspace : Grid
             var state = _session.Workspace;
             if (state is null)
             {
-                foreach (var pane in _panes.Values) Open(pane.Id);
+                if (_panes.ContainsKey("twitch-status")) Open("twitch-status");
             }
             else
             {

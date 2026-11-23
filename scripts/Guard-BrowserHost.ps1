@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory)] [ValidateSet('Check', 'Suspend', 'Resume')] [string] $Mode,
-    [Parameter(Mandatory)] [string] $Executable
+    [Parameter(Mandatory)] [string] $Executable,
+    [switch] $ExitDesktop
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,10 +34,39 @@ if ($Mode -eq 'Check') {
         $probe = [IO.File]::Open($exe, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
         $probe.Dispose()
     } catch [IO.IOException] {
-        Write-Output "error OSHI001: Cannot replace $exe. Close Oshi Tuner. If Edge or Chrome is paired with this build, exit the paired browser (including its background processes) or unpair it, then rebuild. To launch an already-built copy, use dotnet run --no-build."
+        Write-Output "error OSHI001: Cannot replace $exe. Exit Oshi Tuner using its system tray menu. If Edge or Chrome is paired with this build, exit the paired browser (including its background processes) or unpair it, then rebuild. To launch an already-built copy, use dotnet run --no-build."
         exit 1
     }
     exit 0
+}
+
+if ($Mode -eq 'Suspend' -and $ExitDesktop) {
+    $folder = [IO.Path]::GetDirectoryName($exe).ToUpperInvariant()
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($folder))
+        $profileKey = [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant()
+    } finally { $hash.Dispose() }
+    $pipe = [IO.Pipes.NamedPipeClientStream]::new('.', "oshituner-exit-$profileKey", [IO.Pipes.PipeDirection]::In,
+        [IO.Pipes.PipeOptions]::Asynchronous)
+    $timeout = [Threading.CancellationTokenSource]::new(6000)
+    try {
+        try { $pipe.Connect(700) }
+        catch [TimeoutException] { }
+        if ($pipe.IsConnected) {
+            $identity = [byte[]]::new(4)
+            for ($offset = 0; $offset -lt $identity.Length;) {
+                $read = $pipe.ReadAsync($identity, $offset, $identity.Length - $offset, $timeout.Token).GetAwaiter().GetResult()
+                if ($read -eq 0) { throw 'Oshi Tuner did not confirm its pending exit.' }
+                $offset += $read
+            }
+            $desktop = Get-Process -Id ([BitConverter]::ToInt32($identity, 0)) -ErrorAction SilentlyContinue
+            if ($desktop -and !$desktop.WaitForExit(6000)) { throw 'Oshi Tuner desktop did not exit. Exit it from the system tray.' }
+        }
+    } finally {
+        $timeout.Dispose()
+        $pipe.Dispose()
+    }
 }
 
 foreach ($browser in $browsers) {

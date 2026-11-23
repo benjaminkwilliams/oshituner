@@ -15,6 +15,8 @@ public partial class TwitchStatusView : UserControl
     internal Action? EditSortRequested { get; set; }
     internal Func<FollowedChannelRow, string, Task>? WatchRequested { get; set; }
     internal Action<string>? CopyLoginRequested { get; set; }
+    internal Func<FollowedChannelRow, string[]?>? RankChoices { get; set; }
+    internal Action<FollowedChannelRow, string?>? AddOshiRequested { get; set; }
 
     public TwitchStatusView()
     {
@@ -85,8 +87,26 @@ public partial class TwitchStatusView : UserControl
 
     private void ChannelMenu_Opened(object sender, RoutedEventArgs e)
     {
-        if (sender is ContextMenu menu)
-            menu.IsOpen = FollowedChannelsGrid.SelectedItem is FollowedChannelRow;
+        if (sender is not ContextMenu menu) return;
+        var row = FollowedChannelsGrid.SelectedItem as FollowedChannelRow;
+        menu.IsOpen = row is not null;
+        AddOshiMenu.Items.Clear();
+        if (row is null || RankChoices?.Invoke(row) is not { } choices)
+        {
+            AddOshiMenu.IsEnabled = false;
+            return;
+        }
+        AddOshiMenu.IsEnabled = true;
+        AddChoice("New rank", null);
+        for (var index = 0; index < choices.Length; index++)
+            AddChoice($"Rank {index + 1}", choices[index]);
+
+        void AddChoice(string label, string? rank)
+        {
+            var item = new MenuItem { Header = label };
+            item.Click += (_, _) => AddOshiRequested?.Invoke(row, rank);
+            AddOshiMenu.Items.Add(item);
+        }
     }
 
     private void CopyLogin_Click(object sender, RoutedEventArgs e)

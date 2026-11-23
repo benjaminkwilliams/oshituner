@@ -10,7 +10,7 @@ internal sealed class TunerControl(
     Action openAbout, Action closeAbout, Func<bool> isAboutOpen,
     Action openClientId, Action closeClientId, Func<bool> isClientIdOpen,
     BrowserRegistration browsers, Action openBrowserIntegration, Action closeBrowserIntegration, DockWorkspace workspace,
-    ThemeController theme, Action openTheme, Action closeTheme)
+    ThemeController theme, Action openTheme, Action closeTheme, OshiCoordinator oshi)
 {
     public TunerState GetState() => new(1, profile.InstallFolder, AppInformation.Current.Version, AppInformation.Current.TwitchVersion,
         [new("twitch", session.ClientId, session.UserId, session.Busy, session.HasSavedAuthorization,
@@ -20,6 +20,37 @@ internal sealed class TunerControl(
     public FollowedChannelRow[] GetChannels(bool? online = null, bool? subbed = null) =>
         session.Channels.Where(row => (!online.HasValue || row.Online == online)
             && (!subbed.HasValue || row.Subbed == subbed)).ToArray();
+
+    public OshiState GetOshi() => oshi.State;
+
+    public OshiState SetOshi(OshiSettings settings)
+    {
+        session.SetOshi(settings);
+        return GetOshi();
+    }
+
+    public OshiState SetOshiRunning(bool running)
+    {
+        oshi.SetRunning(running);
+        return GetOshi();
+    }
+
+    public OshiState AddOshiChannel(OshiChannelKey key, string? rankId = null)
+    {
+        if (!session.CanRank(key))
+            throw new ArgumentException("Follow or subscribe to this channel before adding it to Oshi.");
+        var row = session.Channels.First(channel => channel.Provider == key.Provider && channel.ChannelId == key.Id);
+        var entry = new OshiEntry(key, row.DisplayName);
+        var settings = session.Oshi;
+        if (settings.Ranks.Any(rank => rank.Channels.Any(existing => existing.Channel == key))) return GetOshi();
+        if (rankId is null)
+            return SetOshi(settings with { Ranks = [.. settings.Ranks, new(Guid.NewGuid().ToString("N"), [entry])] });
+        if (!settings.Ranks.Any(rank => rank.Id == rankId)) throw new ArgumentException("The Oshi rank no longer exists.");
+        return SetOshi(settings with
+        {
+            Ranks = settings.Ranks.Select(rank => rank.Id == rankId ? rank with { Channels = [.. rank.Channels, entry] } : rank).ToArray()
+        });
+    }
 
     public void SetClientId(string provider, string clientId)
     {

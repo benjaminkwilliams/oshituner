@@ -54,6 +54,14 @@ Use **Sort** to choose group priority and a secondary sort. In the **Refresh** m
 
 Open **Settings > Theme** to select a palette, font, opacity and workspace background. Use the built-in Vtuber 4k image, browse to a local or UNC file, or load an HTTP/HTTPS image. GIF and WebP animations play from the per-install cache. A missing or damaged cache falls back to the mode's solid background.
 
+## Oshi automation
+
+In Twitch Status, right-click a followed or subscribed channel and choose **Add to Oshi**. Open **Windows > Oshi** to edit ranks and ties, choose Edge or Chrome, and set how many tabs Oshi can manage in each browser. Select **Start** to enable automation. Oshi checks live status about every 30 seconds while running, with a longer retry interval when every result is unavailable.
+
+A higher-ranked live channel can take a lower-ranked channel's managed tab. Tied channels rotate after 30 minutes when they compete for a slot. Each enabled browser can pick an eligible live follow or sub after 10 minutes without a ranked channel playing. Oshi leaves manual tabs under your control, waits for the paired extension and a browser window before opening a tab in the background, and starts paused after an app restart. If you unfollow a ranked channel, its rank stays saved. A removed channel needs a current follow or sub before you can add it again.
+
+Minimize or close the main window to send Oshi Tuner to the Windows system tray. Refresh, Oshi automation and the local controls keep running. Right-click the tray icon and choose **Open Oshi Tuner** to restore the window or **Exit** to quit.
+
 ## Control a running copy from Codex
 
 Start Oshi Tuner and select **Help > Copy Codex configuration**. Paste the snippet into your local Codex configuration and reload Codex in VS Code. Keep that snippet local because it contains a credential for the authenticated loopback server. If multiple copies run from different folders, configure each separately and choose the intended copy by its install folder and version. The [agent skill](.agents/skills/oshi-tuner/SKILL.md) covers the available operations.
