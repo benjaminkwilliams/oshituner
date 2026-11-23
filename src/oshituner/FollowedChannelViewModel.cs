@@ -22,17 +22,24 @@ internal sealed record FollowedChannelRow(
     int ViewerCount,
     int? SubscriptionTier = null,
     bool? Gifted = null,
-    bool SubscriptionCheckStale = false)
+    bool SubscriptionCheckStale = false,
+    bool BrowserTabOpen = false,
+    bool EdgeAvailable = false,
+    bool ChromeAvailable = false)
 {
     public bool IsLive => Online == true;
+    public bool Watching => IsLive && BrowserTabOpen;
+    public bool CanOpenWatch => IsLive && !BrowserTabOpen;
+    public string WatchStatus => Watching ? "Watching" : CanOpenWatch ? "Watch" : "";
     public string Status => Online is true ? "LIVE" : Online is false ? "Offline" : "Unknown";
     public string SubscriptionDetail => SubscriptionCheckStale ? "Twitch could not verify this subscription on the last refresh."
-        : Gifted == true ? "Gifted Twitch subscription" : SubscriptionStatus;
+        : Gifted == true ? "Gifted Twitch subscription" : Subbed is null ? "Unknown" : SubscriptionStatus;
     public string SubscriptionStatus => Subbed switch
     {
         true when SubscriptionTier is >= 1 and <= 3 => $"Tier{SubscriptionTier}",
         true => "Subbed",
         false => "—",
+        null when Watching => "—",
         _ => "Unknown"
     };
 }
@@ -54,8 +61,9 @@ internal sealed record GridSort(GridGroup[] Groups, SecondarySort Secondary)
 
     public FollowedChannelRow[] Apply(IEnumerable<FollowedChannelRow> channels)
     {
-        var grouped = channels.OrderBy(row => Array.FindIndex(Groups, group => Matches(group, row)) is var index
-            && index >= 0 ? index : Groups.Length);
+        var grouped = channels.OrderByDescending(row => row.Watching)
+            .ThenBy(row => Array.FindIndex(Groups, group => Matches(group, row)) is var index
+                && index >= 0 ? index : Groups.Length);
 
         var ordered = Secondary switch
         {

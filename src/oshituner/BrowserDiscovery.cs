@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Text.Json;
@@ -15,10 +17,13 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
     private static partial Regex TwitchLogin();
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private readonly Dictionary<string, SemaphoreSlim> _requests = BrowserRegistration.Targets
+        .ToDictionary(target => target.Id, _ => new SemaphoreSlim(1));
 
     public async Task<BrowserGiftResult> GetGiftChannelsAsync(CancellationToken cancellationToken)
     {
-        var responses = await Task.WhenAll(BrowserRegistration.Targets.Select(target => QueryAsync(target, cancellationToken)));
+        var responses = await Task.WhenAll(BrowserRegistration.Targets.Select(async target =>
+            await QueryAsync(target, "gift_channels", null, cancellationToken) ?? new BrowserReply(Version, "", "unavailable", [])));
         var logins = responses.SelectMany(response => response.Logins).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var status = responses.Any(response => response.Status == "complete") ? "complete"
             : responses.Any(response => response.Status == "partial") ? "partial"
@@ -26,9 +31,67 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         return new(status, logins);
     }
 
-    private async Task<BrowserGiftResult> QueryAsync(BrowserTarget target, CancellationToken cancellationToken)
+    public Task<BrowserWatchSnapshot[]> GetWatchTabsAsync(CancellationToken cancellationToken) =>
+        Task.WhenAll(BrowserRegistration.Targets.Select(async target =>
+        {
+            var reply = await QueryAsync(target, "watch_channels", null, cancellationToken);
+            return reply is { Status: "complete", ActiveLogins: not null }
+                ? new BrowserWatchSnapshot(target.Id, true, reply.Logins, reply.ActiveLogins)
+                : new BrowserWatchSnapshot(target.Id, registration.IsPairedHere(target), [], []);
+        }));
+
+    public async Task OpenWatchChannelAsync(string browser, string login, CancellationToken cancellationToken)
     {
-        if (!registration.IsPairedHere(target)) return new("unavailable", []);
+        if (!TwitchLogin().IsMatch(login)) throw new ArgumentException("Invalid Twitch channel login.");
+        var target = BrowserRegistration.GetTarget(browser);
+        if (await QueryAsync(target, "open_watch_channel", login, cancellationToken) is { Status: "complete" }) return;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (registration.IsPairedHere(target) && TryOpenBrowserWithoutWindows(target, login)) return;
+        throw new InvalidOperationException($"Could not open the channel. Check that the Oshi Tuner extension is loaded in the paired {target.DisplayName} profile.");
+    }
+
+    private static bool TryOpenBrowserWithoutWindows(BrowserTarget target, string login)
+    {
+        var processes = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(target.ExecutableName));
+        try
+        {
+            if (processes.Any(process => process.MainWindowHandle != 0) || target.FindExecutable() is not { } executable) return false;
+            var start = new ProcessStartInfo(executable);
+            start.ArgumentList.Add("--new-window");
+            start.ArgumentList.Add("https://www.twitch.tv/" + login);
+            using var browser = Process.Start(start);
+            return browser is not null;
+        }
+        catch (Win32Exception) { return false; }
+        finally
+        {
+            foreach (var process in processes) process.Dispose();
+        }
+    }
+
+    public async Task ObserveWatchChangesAsync(Action changed, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                using var signal = new NamedPipeServerStream(registration.WatchSignalPipeName, PipeDirection.In, 1,
+                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                await signal.WaitForConnectionAsync(token);
+                changed();
+            }
+            catch (IOException)
+            {
+                await Task.Delay(1000, token);
+            }
+        }
+    }
+
+    private async Task<BrowserReply?> QueryAsync(BrowserTarget target, string method, string? login, CancellationToken cancellationToken)
+    {
+        if (!registration.IsPairedHere(target)) return null;
+        var gate = _requests[target.Id];
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(3));
         try
@@ -37,22 +100,30 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
                 PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             await pipe.ConnectAsync(250, timeout.Token).ConfigureAwait(false);
             var id = Guid.NewGuid().ToString("N");
-            await WriteFrameAsync(pipe, new { version = Version, id, method = "gift_channels" }, timeout.Token).ConfigureAwait(false);
+            await WriteFrameAsync(pipe, new { version = Version, id, method, login }, timeout.Token).ConfigureAwait(false);
             var frame = await ReadFrameAsync(pipe, timeout.Token).ConfigureAwait(false);
-            if (frame is null) return new("unavailable", []);
+            if (frame is null) return null;
             var reply = JsonSerializer.Deserialize<BrowserReply>(frame, Json);
             if (reply is null || reply.Version != Version || reply.Id != id || reply.Logins is not { Length: <= 500 }
+                || reply.ActiveLogins is { Length: > 500 }
                 || reply.Status is not ("complete" or "partial" or "signed_out" or "unavailable"))
-                return new("unavailable", []);
-            if (reply.Status is "signed_out" or "unavailable") return new(reply.Status, []);
-            var valid = reply.Logins.Where(login => login is not null && TwitchLogin().IsMatch(login)).ToArray();
-            return new(valid.Length == reply.Logins.Length ? reply.Status : "partial", valid);
+                return null;
+            if (reply.Status is "signed_out" or "unavailable") return reply with { Logins = [], ActiveLogins = [] };
+            var valid = reply.Logins.Where(value => value is not null && TwitchLogin().IsMatch(value)).ToArray();
+            var active = reply.ActiveLogins?.Intersect(valid, StringComparer.OrdinalIgnoreCase).ToArray();
+            return reply with
+            {
+                Status = valid.Length == reply.Logins.Length ? reply.Status : "partial",
+                Logins = valid,
+                ActiveLogins = active
+            };
         }
         catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException or JsonException
             || exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
-            return new("unavailable", []);
+            return null;
         }
+        finally { gate.Release(); }
     }
 
     public static async Task<int> RunNativeHostAsync(BrowserRegistration registration, BrowserTarget target)
@@ -62,7 +133,9 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         using var lifetime = new CancellationTokenSource();
         try
         {
-            var read = ReadFrameAsync(input, lifetime.Token);
+            var watchSupported = 0;
+            void EnableWatch() => Interlocked.Exchange(ref watchSupported, 1);
+            var read = ReadBrowserReplyAsync(input, registration, EnableWatch, lifetime.Token);
             while (registration.IsPairedHere(target))
             {
                 using var pipe = new NamedPipeServerStream(registration.PipeName(target), PipeDirection.InOut, 1,
@@ -77,21 +150,30 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
                     requestTimeout.CancelAfter(TimeSpan.FromSeconds(4));
                     var request = await ReadFrameAsync(pipe, requestTimeout.Token).ConfigureAwait(false);
                     if (request is null || !registration.IsPairedHere(target)) continue;
+                    if (Volatile.Read(ref watchSupported) == 0 && UnavailableWatchReply(request) is { } unavailable)
+                    {
+                        await WriteFrameAsync(pipe, unavailable, requestTimeout.Token).ConfigureAwait(false);
+                        continue;
+                    }
                     await WriteFrameBytesAsync(output, request, requestTimeout.Token).ConfigureAwait(false);
                     var response = await read.WaitAsync(requestTimeout.Token).ConfigureAwait(false);
                     if (response is null) break;
-                    read = ReadFrameAsync(input, lifetime.Token);
+                    read = ReadBrowserReplyAsync(input, registration, EnableWatch, lifetime.Token);
                     await WriteFrameBytesAsync(pipe, response, requestTimeout.Token).ConfigureAwait(false);
                 }
                 catch (IOException) when (!read.IsCompleted) { }
             }
             return 0;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or OperationCanceledException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or OperationCanceledException or JsonException)
         {
             return 1;
         }
-        finally { await lifetime.CancelAsync().ConfigureAwait(false); }
+        finally
+        {
+            await lifetime.CancelAsync().ConfigureAwait(false);
+            await SignalWatchChangeAsync(registration).ConfigureAwait(false);
+        }
     }
 
     private static async Task<bool> WaitForRegisteredConnectionAsync(Task connection, Task read,
@@ -120,6 +202,47 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         catch (Exception exception) when (exception is IOException or TimeoutException or OperationCanceledException) { }
     }
 
+    private static BrowserReply? UnavailableWatchReply(byte[] frame)
+    {
+        using var request = JsonDocument.Parse(frame);
+        var root = request.RootElement;
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("method", out var method)
+            || method.ValueKind != JsonValueKind.String || method.GetString() is not ("watch_channels" or "open_watch_channel")
+            || !root.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String)
+            return null;
+        return new(Version, id.GetString()!, "unavailable", []);
+    }
+
+    private static async Task<byte[]?> ReadBrowserReplyAsync(Stream input, BrowserRegistration registration,
+        Action enableWatch, CancellationToken token)
+    {
+        while (await ReadFrameAsync(input, token).ConfigureAwait(false) is { } frame)
+        {
+            using var message = JsonDocument.Parse(frame);
+            if (message.RootElement.ValueKind == JsonValueKind.Object
+                && message.RootElement.TryGetProperty("event", out var name)
+                && name.ValueKind == JsonValueKind.String && name.GetString() == "watch_changed")
+            {
+                enableWatch();
+                await SignalWatchChangeAsync(registration).ConfigureAwait(false);
+                continue;
+            }
+            return frame;
+        }
+        return null;
+    }
+
+    private static async Task SignalWatchChangeAsync(BrowserRegistration registration)
+    {
+        try
+        {
+            using var signal = new NamedPipeClientStream(".", registration.WatchSignalPipeName, PipeDirection.Out,
+                PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+            await signal.ConnectAsync(100).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException) { }
+    }
+
     private static async Task<byte[]?> ReadFrameAsync(Stream stream, CancellationToken token)
     {
         var header = new byte[sizeof(int)];
@@ -144,7 +267,8 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         await stream.FlushAsync(token).ConfigureAwait(false);
     }
 
-    private sealed record BrowserReply(int Version, string Id, string Status, string[] Logins);
+    private sealed record BrowserReply(int Version, string Id, string Status, string[] Logins, string[]? ActiveLogins = null);
 }
 
 internal sealed record BrowserGiftResult(string Status, string[] Logins);
+internal sealed record BrowserWatchSnapshot(string Browser, bool Available, string[] Logins, string[] ActiveLogins);

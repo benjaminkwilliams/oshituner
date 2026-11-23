@@ -48,7 +48,7 @@ graphify update .
 
 In the app, open **Plugins > Twitch > Client ID** to enter the ID if needed, then select **Connect Twitch**. Select **Open Twitch** and approve access using the displayed code. The app requests `user:read:follows` and `user:read:subscriptions`. It remembers the Client ID and stores encrypted authorization for each install folder under your Windows user profile. The `TWITCH_CLIENT_ID` environment variable overrides the saved ID.
 
-Use **Sort** to choose group priority and a secondary sort. **Refresh Now** runs immediately. **Auto Refresh** defaults to 30 minutes and also offers 5, 10, 15, and 60 minutes. **Open on Twitch** opens the selected channel. Set up [Browser Integration](docs/browser-integration.md) to discover gifted subs from an already-open Twitch Gifts tab. Verified gifts remain available for Helix rechecks with the browser closed.
+Use **Sort** to choose group priority and a secondary sort. In the **Refresh** menu, choose **Now** to refresh immediately or choose 5, 10, 15, 30, or 60 minutes for automatic refresh. The default is 30 minutes. Use the browser icons in the **WATCH** column to open a channel in Edge or Chrome. Set up [Browser Integration](docs/browser-integration.md) to discover gifted subs from an already-open Twitch Gifts tab. Verified gifts remain available for Helix rechecks with the browser closed.
 
 **Windows > Twitch Status** reopens or focuses the grid. Drag its tab to float it, or drop it on a workspace dock target to redock it. The pin keeps a docked group expanded. Each app copy remembers its pane layout.
 

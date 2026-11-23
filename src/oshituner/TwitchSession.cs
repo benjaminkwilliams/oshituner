@@ -63,8 +63,13 @@ internal sealed partial class TunerSession
 
             ActivationUri = null;
             ActivationCode = null;
-            if (UserId != access.UserId) _rows = [];
+            if (UserId != access.UserId)
+            {
+                _rows = [];
+                ClearWatchRows();
+            }
             UserId = access.UserId;
+            _watchAccess = access;
             CanReadSubscriptions = access.CanReadSubscriptions;
             if (_settings.TwitchClientId != ClientId)
                 SaveSettings(_settings with { TwitchClientId = ClientId });
@@ -76,6 +81,8 @@ internal sealed partial class TunerSession
             await Task.WhenAll(followed, live);
             var follows = (await followed).DistinctBy(channel => channel.Id).ToArray();
             await RefreshChannelRowsAsync(api, access, follows, await live, operation.Token);
+            RebuildChannelProjection();
+            _watchRecheck = true;
         }
         catch (OperationCanceledException) when (operation.IsCancellationRequested)
         {
@@ -125,6 +132,7 @@ internal sealed partial class TunerSession
         CanReadSubscriptions = false;
         GiftDiscoveryStatus = "not_checked";
         _rows = [];
+        ClearWatchRows();
         Message = message;
     }
 

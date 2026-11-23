@@ -63,7 +63,7 @@
                                Margin="0,4,0,0" />
                 </StackPanel>
                 <Button x:Name="OpenActivationButton" Grid.Column="1" Content="Open Twitch" Click="OpenActivationButton_Click" VerticalAlignment="Center" Margin="0,0,8,0" IsEnabled="False" />
-                <Button Grid.Column="2" Content="Cancel" Click="CancelAuthorizationButton_Click" VerticalAlignment="Center" Background="{DynamicResource DockHeaderBackground}" />
+                <Button Grid.Column="2" Content="Cancel" Click="CancelAuthorizationButton_Click" VerticalAlignment="Center" Background="{DynamicResource DockHeaderBackground}" Foreground="{DynamicResource PrimaryForeground}" />
             </Grid>
         </Border>
 

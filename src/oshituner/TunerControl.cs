@@ -63,6 +63,15 @@ internal sealed class TunerControl(
         Open(session.ActivationUri ?? throw new InvalidOperationException("Twitch activation is not pending."));
     }
 
+    public Task WatchChannelAsync(string channelId, string browser, CancellationToken token) =>
+        session.WatchChannelAsync(channelId, browser, token);
+
+    public async Task<TunerState> WatchOnUiAsync(string channelId, string browser, CancellationToken token)
+    {
+        await OnUiAsync(() => WatchChannelAsync(channelId, browser, token), token).Unwrap();
+        return await OnUiAsync(GetState, token);
+    }
+
     public void OpenChannel(string provider, string channelId)
     {
         RequireTwitch(provider);

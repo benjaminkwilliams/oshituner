@@ -18,9 +18,9 @@ The app matches live streams to followed channels by broadcaster ID. The channel
 
 ## Discover gifted subscriptions
 
-The paired browser can supply channel logins from an already-open Twitch Gifted Subscriptions tab. Startup restoration, **Refresh Now**, and scheduled refresh all use the same discovery path. The browser never needs to change tabs or take focus. App-side Helix calls resolve the logins, verify whether each channel gave the signed-in user an active gift, and look up the stream status. After verification, Oshi Tuner remembers the broadcaster ID for that Twitch account and can recheck it with the browser closed. A confirmed ended gift drops an unfollowed channel from the grid.
+The paired browser can supply channel logins from an already-open Twitch Gifted Subscriptions tab. Startup restoration, **Refresh > Now**, and scheduled refresh all use the same discovery path. The browser never needs to change tabs or take focus. App-side Helix calls resolve the logins, verify whether each channel gave the signed-in user an active gift, and look up the stream status. After verification, Oshi Tuner remembers the broadcaster ID for that Twitch account and can recheck it with the browser closed. A confirmed ended gift drops an unfollowed channel from the grid.
 
-The public viewer sub check requires a broadcaster ID. Oshi Tuner uses its own Twitch OAuth token for every Helix call. See [Browser Integration](browser-integration.md) for setup. **Auto Refresh** offers 5, 10, 15, 30, and 60 minutes and defaults to 30.
+The public viewer sub check requires a broadcaster ID. Oshi Tuner uses its own Twitch OAuth token for every Helix call. See [Browser Integration](browser-integration.md) for setup. The **Refresh** menu offers automatic intervals of 5, 10, 15, 30, and 60 minutes and defaults to 30.
 
 ## Authorization and token handling
 

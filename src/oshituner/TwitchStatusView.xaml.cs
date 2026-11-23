@@ -8,18 +8,24 @@ public partial class TwitchStatusView : UserControl
 {
     private readonly FollowedChannelViewModel _viewModel = new();
     private IReadOnlyList<FollowedChannelRow>? _renderedRows;
+    private int _refreshMinutes;
 
     internal Action? RefreshRequested { get; set; }
     internal Action<int>? IntervalChanged { get; set; }
     internal Action? EditSortRequested { get; set; }
-    internal Action<FollowedChannelRow>? OpenChannelRequested { get; set; }
+    internal Func<FollowedChannelRow, string, Task>? WatchRequested { get; set; }
     internal Action<string>? CopyLoginRequested { get; set; }
 
     public TwitchStatusView()
     {
         InitializeComponent();
         DataContext = _viewModel;
-        AutoRefresh.ItemsSource = TunerSession.RefreshIntervals;
+        foreach (var minutes in TunerSession.RefreshIntervals)
+        {
+            var option = new MenuItem { Header = minutes.ToString(), Tag = minutes, IsCheckable = true };
+            option.Click += RefreshInterval_Click;
+            RefreshMenu.Items.Add(option);
+        }
     }
 
     internal void Render(TunerSession session)
@@ -27,7 +33,12 @@ public partial class TwitchStatusView : UserControl
         var connected = session.UserId is not null;
         ListToolbar.Visibility = connected && session.ActivationUri is null ? Visibility.Visible : Visibility.Collapsed;
         EmptyStatePanel.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;
-        RefreshButton.IsEnabled = !session.Busy;
+        RefreshNow.IsEnabled = !session.Busy;
+        _refreshMinutes = session.AutoRefreshMinutes;
+        var helpText = $"Automatic refresh every {_refreshMinutes} minutes";
+        RefreshButton.ToolTip = helpText;
+        System.Windows.Automation.AutomationProperties.SetHelpText(RefreshButton, helpText);
+        MarkRefreshInterval();
 
         if (!ReferenceEquals(_renderedRows, session.Channels))
         {
@@ -41,16 +52,29 @@ public partial class TwitchStatusView : UserControl
 
         FollowCountText.Text = $"{session.Channels.Count(row => row.Followed)} followed";
         LiveCountText.Text = $"{session.Channels.Count(row => row.IsLive)} live";
-        AutoRefresh.SelectedItem = session.AutoRefreshMinutes;
     }
 
     internal void FocusGrid() => FollowedChannelsGrid.Focus();
 
-    private void RefreshButton_Click(object sender, RoutedEventArgs e) => RefreshRequested?.Invoke();
-
-    private void AutoRefresh_SelectionChanged(object sender, RoutedEventArgs e)
+    private void OpenRefreshMenu_Click(object sender, RoutedEventArgs e)
     {
-        if (AutoRefresh.SelectedItem is int minutes) IntervalChanged?.Invoke(minutes);
+        RefreshMenu.PlacementTarget = RefreshButton;
+        RefreshMenu.IsOpen = true;
+    }
+
+    private void RefreshNow_Click(object sender, RoutedEventArgs e) => RefreshRequested?.Invoke();
+
+    private void RefreshInterval_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { Tag: int minutes } && minutes != _refreshMinutes)
+            IntervalChanged?.Invoke(minutes);
+        MarkRefreshInterval();
+    }
+
+    private void MarkRefreshInterval()
+    {
+        foreach (var item in RefreshMenu.Items.OfType<MenuItem>())
+            if (item.Tag is int minutes) item.IsChecked = minutes == _refreshMinutes;
     }
 
     private void SelectChannelForContextMenu(object sender, MouseButtonEventArgs e)
@@ -70,9 +94,15 @@ public partial class TwitchStatusView : UserControl
         if (FollowedChannelsGrid.SelectedItem is FollowedChannelRow row) CopyLoginRequested?.Invoke(row.Login);
     }
 
-    private void OpenChannel_Click(object sender, RoutedEventArgs e)
+    private async void WatchBrowser_Click(object sender, RoutedEventArgs e)
     {
-        if (FollowedChannelsGrid.SelectedItem is FollowedChannelRow row) OpenChannelRequested?.Invoke(row);
+        if (sender is Button { DataContext: FollowedChannelRow row, Tag: string browser } button
+            && WatchRequested is { } watch)
+        {
+            button.IsEnabled = false;
+            try { await watch(row, browser); }
+            finally { button.IsEnabled = true; }
+        }
     }
 
     private void EditSort_Click(object sender, RoutedEventArgs e) => EditSortRequested?.Invoke();

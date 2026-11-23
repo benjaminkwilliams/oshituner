@@ -51,6 +51,10 @@ internal sealed class McpTunerTools
         string channelId, string provider = "twitch") =>
         control.ChangeAsync(() => control.OpenChannel(provider, channelId), cancellationToken);
 
+    [McpServerTool(Name = "watch_channel"), Description("Open a Twitch grid channel in the paired Edge or Chrome browser.")]
+    public static Task<TunerState> WatchChannel(TunerControl control, CancellationToken cancellationToken,
+        string channelId, string browser) => control.WatchOnUiAsync(channelId, browser, cancellationToken);
+
     [McpServerTool(Name = "get_browser_pairings"), Description("Read Edge and Chrome pairing status for this installation.")]
     public static Task<BrowserPairing[]> GetBrowserPairings(TunerControl control, CancellationToken cancellationToken) =>
         control.OnUiAsync(control.GetBrowserPairings, cancellationToken);

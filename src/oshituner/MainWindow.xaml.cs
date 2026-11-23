@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     private readonly ThemeController _theme;
     private ThemeWindow? _themeWindow;
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromMinutes(30) };
+    private readonly DispatcherTimer _watchTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private LocalControlHost? _host;
     private readonly CancellationTokenSource _lifetime = new();
     private Window? _about;
@@ -47,9 +48,10 @@ public partial class MainWindow : Window
         _statusView.RefreshRequested = () => Run(() => _control.Start("twitch", false));
         _statusView.IntervalChanged = minutes => Run(() => _control.SetAutoRefresh(minutes));
         _statusView.EditSortRequested = EditSort;
-        _statusView.OpenChannelRequested = row => Run(() => _control.OpenChannel(row.Provider, row.ChannelId));
+        _statusView.WatchRequested = WatchChannelAsync;
         _statusView.CopyLoginRequested = login => Run(() => Clipboard.SetText(login));
         _session.Changed += RenderState;
+        _watchTimer.Tick += (_, _) => UpdateWatchTabs();
         _refreshTimer.Tick += (_, _) => { if (!_session.Busy) Run(() => _control.Start("twitch", false)); };
         RenderState();
     }
@@ -58,6 +60,8 @@ public partial class MainWindow : Window
     {
         Loaded -= Window_Loaded;
         _workspace.Restore();
+        _ = ObserveWatchChangesAsync();
+        _watchTimer.Start();
         try
         {
             var host = await LocalControlHost.StartAsync(_control, _profile, _session.PreferredPort, _lifetime.Token);
@@ -75,7 +79,10 @@ public partial class MainWindow : Window
             ControlStatus.Text = "Local API unavailable. The desktop controls are available.";
         }
         if (!_lifetime.IsCancellationRequested && !_session.Busy)
+        {
             await _session.RestoreAsync();
+            UpdateWatchTabs();
+        }
     }
 
     private void Window_Closing(object sender, CancelEventArgs e)
@@ -84,10 +91,37 @@ public partial class MainWindow : Window
         _theme.Dispose();
         _lifetime.Cancel();
         _refreshTimer.Stop();
+        _watchTimer.Stop();
         var shutdown = _host?.DisposeAsync();
         _session.Dispose();
         _instanceLock.Dispose();
         if (shutdown is { } pending) _ = pending.AsTask();
+    }
+
+    private async Task ObserveWatchChangesAsync()
+    {
+        try { await _session.ObserveWatchChangesAsync(UpdateWatchTabs, _lifetime.Token); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (UnauthorizedAccessException) { ReportError("Could not receive browser tab changes."); }
+    }
+
+    private async void UpdateWatchTabs()
+    {
+        try { await _session.SyncWatchTabsAsync(_lifetime.Token); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            ReportError("Could not read the browser's Twitch tabs.");
+        }
+    }
+
+    private async Task WatchChannelAsync(FollowedChannelRow row, string browser)
+    {
+        try { await _control.WatchChannelAsync(row.ChannelId, browser, _lifetime.Token); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            ReportError(exception.Message);
+        }
     }
 
     private void Theme_Click(object sender, RoutedEventArgs e) => _control.OpenTheme();

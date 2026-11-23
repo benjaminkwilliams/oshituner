@@ -8,15 +8,17 @@
         <SolidColorBrush x:Key="DockPanelBackground" Color="#18181B" />
         <SolidColorBrush x:Key="FloatingPanelBackground" Color="#18181B" />
         <SolidColorBrush x:Key="DockHeaderBackground" Color="#252529" />
-        <SolidColorBrush x:Key="PrimaryForeground" Color="#EFEFF1" />
+        <SolidColorBrush x:Key="PrimaryForeground" Color="White" />
         <SolidColorBrush x:Key="PanelBackground" Color="#18181B" />
         <SolidColorBrush x:Key="MutedForeground" Color="#ADADB8" />
         <SolidColorBrush x:Key="AccentBrush" Color="#9147FF" />
         <SolidColorBrush x:Key="LiveBrush" Color="#FF6666" />
+        <SolidColorBrush x:Key="WatchBrush" Color="#8DE89D" />
+        <SolidColorBrush x:Key="WatchingBrush" Color="#8AC8FF" />
         <SolidColorBrush x:Key="SubBrush" Color="#FFD700" />
         <SolidColorBrush x:Key="InputBackground" Color="#15151A" />
         <SolidColorBrush x:Key="BorderBrush" Color="#41414B" />
-        <SolidColorBrush x:Key="AlternateRowBackground" Color="#1F1F23" />
+        <SolidColorBrush x:Key="GridStripeOverlay" Color="#14FFFFFF" />
         <SolidColorBrush x:Key="SelectedBackground" Color="#493376" />
         <SolidColorBrush x:Key="SelectedForeground" Color="#FFFFFF" />
         <SolidColorBrush x:Key="AccentForeground" Color="#FFFFFF" />
@@ -34,20 +36,52 @@
         <Style TargetType="Menu" BasedOn="{StaticResource ThemeControl}">
             <Setter Property="Background" Value="{DynamicResource DockHeaderBackground}" />
         </Style>
-        <Style TargetType="MenuItem" BasedOn="{StaticResource ThemeControl}" />
+        <Style TargetType="MenuItem" BasedOn="{StaticResource ThemeControl}">
+            <Style.Triggers>
+                <Trigger Property="Role" Value="SubmenuHeader">
+                    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.MenuTextBrushKey}}" />
+                </Trigger>
+                <Trigger Property="Role" Value="SubmenuItem">
+                    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.MenuTextBrushKey}}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
         <Style TargetType="ContextMenu" BasedOn="{StaticResource ThemeControl}">
-            <Setter Property="Background" Value="{DynamicResource PanelBackground}" />
+            <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.MenuBrushKey}}" />
         </Style>
         <Style TargetType="ComboBox" BasedOn="{StaticResource ThemeControl}">
-            <Setter Property="Background" Value="{DynamicResource InputBackground}" />
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}" />
         </Style>
         <Style TargetType="ListBox" BasedOn="{StaticResource ThemeControl}">
-            <Setter Property="Background" Value="{DynamicResource InputBackground}" />
+            <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}" />
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}" />
         </Style>
+        <ControlTemplate x:Key="ThemeButtonTemplate" TargetType="ButtonBase">
+            <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                  RecognizesAccessKey="True" />
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter TargetName="Chrome" Property="BorderBrush" Value="{Binding Foreground, RelativeSource={RelativeSource TemplatedParent}}" />
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
         <Style TargetType="ToggleButton" BasedOn="{StaticResource ThemeControl}">
+            <Setter Property="Template" Value="{StaticResource ThemeButtonTemplate}" />
             <Setter Property="Background" Value="{DynamicResource DockHeaderBackground}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
             <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectedBackground}" />
+                    <Setter Property="Foreground" Value="{DynamicResource SelectedForeground}" />
+                </Trigger>
                 <Trigger Property="IsChecked" Value="True">
                     <Setter Property="Background" Value="{DynamicResource SelectedBackground}" />
                     <Setter Property="Foreground" Value="{DynamicResource SelectedForeground}" />
@@ -56,7 +90,6 @@
         </Style>
 
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{DynamicResource PrimaryForeground}" />
             <Setter Property="FontFamily" Value="{DynamicResource ApplicationFont}" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
@@ -72,8 +105,12 @@
             <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource AccentForeground}" />
             <Setter Property="FontFamily" Value="{DynamicResource ApplicationFont}" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="16,9" />
+            <Setter Property="Template" Value="{StaticResource ThemeButtonTemplate}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Padding" Value="15,8" />
             <Setter Property="Cursor" Value="Hand" />
             <Style.Triggers>
                 <Trigger Property="IsEnabled" Value="False">
@@ -93,8 +130,8 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="GridLinesVisibility" Value="Horizontal" />
             <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}" />
-            <Setter Property="RowBackground" Value="{DynamicResource PanelBackground}" />
-            <Setter Property="AlternatingRowBackground" Value="{DynamicResource AlternateRowBackground}" />
+            <Setter Property="RowBackground" Value="Transparent" />
+            <Setter Property="AlternatingRowBackground" Value="{DynamicResource GridStripeOverlay}" />
             <Setter Property="HeadersVisibility" Value="Column" />
             <Setter Property="CanUserAddRows" Value="False" />
             <Setter Property="IsReadOnly" Value="True" />

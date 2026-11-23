@@ -58,6 +58,8 @@ internal sealed class BrowserRegistration(InstallProfile profile)
     public bool IsPairedHere(BrowserTarget target) =>
         ReadManifest(target) is { } current && Owns(current, target);
 
+    public string WatchSignalPipeName => $"oshituner-{profile.Key}-watch";
+
     public string PipeName(BrowserTarget target) => $"oshituner-{profile.Key}-{target.Id}-browser";
 
     public static BrowserTarget GetTarget(string id) =>
@@ -100,6 +102,24 @@ internal sealed class BrowserRegistration(InstallProfile profile)
 
 internal sealed record BrowserTarget(string Id, string DisplayName, string VendorKey, string ExtensionId)
 {
+    public string ExecutableName => Id == "edge" ? "msedge.exe" : "chrome.exe";
+
+    public string? FindExecutable()
+    {
+        var key = $@"Software\Microsoft\Windows\CurrentVersion\App Paths\{ExecutableName}";
+        foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
+        {
+            using var app = hive.OpenSubKey(key);
+            if (app?.GetValue("") is string executable && File.Exists(executable))
+                return executable;
+        }
+
+        return new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86,
+            Environment.SpecialFolder.LocalApplicationData }
+            .Select(folder => Path.Combine(Environment.GetFolderPath(folder), VendorKey, "Application", ExecutableName))
+            .FirstOrDefault(File.Exists);
+    }
+
     public string HostName => $"com.oshituner.{Id}";
     public string Origin => $"chrome-extension://{ExtensionId}/";
     public string RegistryPath => $@"Software\{VendorKey}\NativeMessagingHosts\{HostName}";

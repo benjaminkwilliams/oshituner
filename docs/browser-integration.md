@@ -8,7 +8,15 @@ Edge and Chrome are paired separately. Each browser can point to one Oshi Tuner 
 2. Open **Settings > Browser Integration** and select **Pair** beside Edge or Chrome. If another copy already owns that browser, **Switch to this install** asks before replacing the pairing.
 3. Install the extension in that browser. Store listings are pending. For development verification, enable developer mode in `edge://extensions` or `chrome://extensions`, choose **Load unpacked**, and select the matching `browser/edge` or `browser/chrome` directory inside the build or installed application folder.
 
+During an upgrade, setup briefly pauses the browser registrations for the installation being replaced and restores them afterward. Open browsers reconnect automatically. If a browser helper is locking a development build, MSBuild reports the locked executable before trying to copy files.
+
 The optional installer setup can pair an unpaired browser. Use Settings to move a pairing already held by another copy. Uninstalling a copy removes only the pairings it owns.
+
+## Watching Twitch
+
+The WATCH column shows **Watching** for a live channel with an open Twitch channel tab in either paired browser. Watching rows sort first. The browser icons appear on live rows without an open tab. Tab changes update the grid independently of Twitch auto-refresh. A selected Twitch channel can add a temporary row, which stays until the last tab for that channel closes. Choose an available Edge or Chrome icon to open a channel in a window that already has Twitch channel tabs. A new window opens when the paired browser is closed or has no channel tabs.
+
+Reload the unpacked extension after updating the application. The bridge only reads Twitch channel tabs in the browser profile running the extension.
 
 ## Gifted channel discovery
 

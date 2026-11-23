@@ -84,7 +84,7 @@ internal sealed partial class DockWorkspace
                 Width = 14, Height = 14, Stretch = Stretch.Uniform,
                 Data = Geometry.Parse("M16,12 V4 H17 V2 H7 V4 H8 V12 L6,14 V16 H11 V22 L12,23 L13,22 V16 H18 V14 Z")
             };
-            icon.SetResourceReference(Shape.FillProperty, "PrimaryForeground");
+            icon.SetBinding(Shape.FillProperty, new System.Windows.Data.Binding(nameof(Control.Foreground)) { Source = pin });
             if (!group.Pinned) icon.LayoutTransform = new RotateTransform(35);
             pin.Content = icon;
             pin.Click += (_, _) => { if (group.Selected is { } pane) SetPinned(pane.Id, pin.IsChecked == true); };

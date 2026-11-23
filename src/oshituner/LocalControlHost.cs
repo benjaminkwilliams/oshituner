@@ -122,9 +122,13 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
 
             try
             {
-                var result = method.GetString() == "import_theme_image"
-                    ? await control.ImportThemeImageAsync(Required<string>(args, "source"), http.RequestAborted)
-                    : await control.OnUiAsync(() => Execute(control, method.GetString()!, args), http.RequestAborted);
+                object result = method.GetString() switch
+                {
+                    "import_theme_image" => await control.ImportThemeImageAsync(Required<string>(args, "source"), http.RequestAborted),
+                    "watch_channel" => await control.WatchOnUiAsync(Required<string>(args, "channelId"),
+                        Required<string>(args, "browser"), http.RequestAborted),
+                    _ => await control.OnUiAsync(() => Execute(control, method.GetString()!, args), http.RequestAborted)
+                };
                 return id.HasValue ? Results.Json(new { jsonrpc = "2.0", id, result }, Json) : Results.NoContent();
             }
             catch (MissingMethodException) { return id.HasValue ? Error(id, -32601, "Unknown method.") : Results.NoContent(); }

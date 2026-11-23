@@ -88,17 +88,21 @@ internal sealed class ThemeController : IDisposable
         Set("DockPanelBackground", light ? 0xF5F5F7u : 0x18181Bu, SystemColors.WindowColor,
             (int)Math.Round(theme.Opacity * 255d / 100));
         Set("DockHeaderBackground", light ? 0xDDDDE4u : 0x252529u, SystemColors.ControlColor);
-        Set("PrimaryForeground", light ? 0x191921u : 0xEFEFF1u, SystemColors.WindowTextColor);
+        Set("PrimaryForeground", light ? 0x000000u : 0xFFFFFFu, SystemColors.WindowTextColor);
         Set("MutedForeground", light ? 0x494950u : 0xADADB8u, SystemColors.WindowTextColor);
         Set("InputBackground", light ? 0xFFFFFFu : 0x15151Au, SystemColors.WindowColor);
         Set("BorderBrush", light ? 0xBBBCC5u : 0x41414Bu, SystemColors.WindowTextColor);
-        Set("AlternateRowBackground", light ? 0xEBEBF2u : 0x1F1F23u, SystemColors.WindowColor);
+        // Rows already sit on the dock surface. Add a faint stripe tint instead of painting a second surface.
+        Set("GridStripeOverlay", light ? 0x000000u : 0xFFFFFFu, SystemColors.ControlColor,
+            (int)Math.Round(theme.Opacity * 24d / 100));
         Set("SelectedBackground", light ? 0xDECCF9u : 0x493376u, SystemColors.HighlightColor);
-        Set("SelectedForeground", light ? 0x211439u : 0xFFFFFFu, SystemColors.HighlightTextColor);
+        Set("SelectedForeground", light ? 0x000000u : 0xFFFFFFu, SystemColors.HighlightTextColor);
         Set("AccentBrush", light ? 0x5E2AA3u : 0x7134BDu, SystemColors.HighlightColor);
         Set("AccentForeground", 0xFFFFFFu, SystemColors.HighlightTextColor);
         Set("DisabledForeground", light ? 0x65656Du : 0xB0B0B8u, SystemColors.GrayTextColor);
         Set("LiveBrush", light ? 0x9E1A16u : 0xFF6666u, SystemColors.WindowTextColor);
+        Set("WatchBrush", light ? 0x17682Du : 0x8DE89Du, SystemColors.WindowTextColor);
+        Set("WatchingBrush", light ? 0x17549Cu : 0x8AC8FFu, SystemColors.WindowTextColor);
         Set("SubBrush", light ? 0x765000u : 0xFFD700u, SystemColors.WindowTextColor);
         resources["ApplicationFont"] = contrast ? SystemFonts.MessageFontFamily : theme.ResolveFont();
 

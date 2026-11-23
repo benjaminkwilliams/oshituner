@@ -42,7 +42,7 @@ internal sealed partial class TunerSession : IDisposable
 
     public event Action? Changed;
     public GridSort Sort { get; private set; }
-    public IReadOnlyList<FollowedChannelRow> Channels => _rows;
+    public IReadOnlyList<FollowedChannelRow> Channels => _channelProjection ?? _rows;
 
     public void SetSort(GridSort sort)
     {
@@ -50,6 +50,7 @@ internal sealed partial class TunerSession : IDisposable
         SaveSettings(_settings with { Sort = sort });
         Sort = sort;
         _rows = Sort.Apply(_rows);
+        RebuildChannelProjection();
         Changed?.Invoke();
     }
 
