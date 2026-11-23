@@ -58,4 +58,5 @@ internal sealed class SettingsStore(InstallProfile profile)
 }
 
 internal sealed record TunerSettings(string? TwitchClientId = null, GridSort? Sort = null, int? ControlPort = null,
-    int? AutoRefreshMinutes = null, Dictionary<string, TwitchChannel[]>? RememberedTwitchGifts = null, WorkspaceState? Workspace = null, ThemeSettings? Theme = null);
+    int? AutoRefreshMinutes = null, Dictionary<string, TwitchChannel[]>? RememberedTwitchGifts = null, WorkspaceState? Workspace = null, ThemeSettings? Theme = null,
+    [property: System.Text.Json.Serialization.JsonConverter(typeof(OshiSettingsConverter))] OshiSettings? Oshi = null);

@@ -144,7 +144,10 @@ internal sealed record LiveStream(
     [property: JsonPropertyName("user_id")] string UserId,
     [property: JsonPropertyName("game_name")] string GameName,
     [property: JsonPropertyName("title")] string Title,
-    [property: JsonPropertyName("viewer_count")] int ViewerCount);
+    [property: JsonPropertyName("viewer_count")] int ViewerCount,
+    string? Id = null,
+    [property: JsonPropertyName("started_at")] DateTimeOffset? StartedAt = null,
+    [property: JsonPropertyName("user_login")] string? UserLogin = null);
 
 internal sealed record FollowedChannel(
     [property: JsonPropertyName("broadcaster_id")] string Id,

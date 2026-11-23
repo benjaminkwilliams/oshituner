@@ -40,6 +40,31 @@ internal sealed partial class TunerSession : IDisposable
 
     public void SetWorkspace(WorkspaceState state) => SaveSettings(_settings with { Workspace = state });
 
+    private static readonly OshiSettings DefaultOshi = OshiSettings.Create();
+    public OshiSettings Oshi => _settings.Oshi ?? DefaultOshi;
+
+    public OshiCoordinator CreateOshiCoordinator() => new(this, _browserDiscovery, [TwitchOshiSource]);
+
+    public bool CanRank(OshiChannelKey channel) => _rows.Any(row =>
+        row.Provider == channel.Provider && row.ChannelId == channel.Id &&
+        (row.Followed || (row.Subbed == true && !row.SubscriptionCheckStale)));
+
+    public void SetOshi(OshiSettings settings)
+    {
+        if (!settings.IsValid())
+            throw new ArgumentException($"Provide unique ranks and channels, valid browsers, and tab limits from 0 to {OshiSettings.MaxBrowserTabs}.");
+
+        var existing = Oshi.Ranks.SelectMany(rank => rank.Channels).Select(entry => entry.Channel).ToHashSet();
+        foreach (var entry in settings.Ranks.SelectMany(rank => rank.Channels))
+        {
+            if (!existing.Contains(entry.Channel) && !CanRank(entry.Channel))
+                throw new ArgumentException($"Follow or subscribe to {entry.Label} before ranking that channel.");
+        }
+
+        SaveSettings(_settings with { Oshi = settings });
+        Changed?.Invoke();
+    }
+
     public event Action? Changed;
     public GridSort Sort { get; private set; }
     public IReadOnlyList<FollowedChannelRow> Channels => _channelProjection ?? _rows;

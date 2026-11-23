@@ -40,6 +40,23 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
                 : new BrowserWatchSnapshot(target.Id, registration.IsPairedHere(target), [], []);
         }));
 
+    public Task<OshiBrowserSnapshot[]> GetOshiTabsAsync(CancellationToken token) =>
+        Task.WhenAll(BrowserRegistration.Targets.Select(async target =>
+        {
+            var reply = await QueryAsync(target, "oshi_tabs", null, token);
+            return reply is { Status: "complete", ManagedTabs: { Length: <= 500 } tabs } &&
+                tabs.Select(tab => tab?.TabId).Distinct().Count() == tabs.Length &&
+                tabs.All(tab => tab is not null && tab.TabId >= 0 && Guid.TryParseExact(tab.Revision, "N", out _) &&
+                    tab.Login is not null && reply.Logins.Contains(tab.Login, StringComparer.OrdinalIgnoreCase))
+                ? new OshiBrowserSnapshot(target.Id, "ready", reply.Logins, tabs)
+                : new OshiBrowserSnapshot(target.Id, !registration.IsPairedHere(target) ? "unpaired"
+                    : reply?.Status == "unavailable" ? "update extension" : "browser unavailable", [], []);
+        }));
+
+    public async Task<bool> ApplyOshiMutationAsync(string browser, string? login, OshiBrowserMutation mutation,
+        CancellationToken token) => await QueryAsync(BrowserRegistration.GetTarget(browser), "oshi_mutate",
+            login, token, mutation) is { Status: "complete" };
+
     public async Task OpenWatchChannelAsync(string browser, string login, CancellationToken cancellationToken)
     {
         if (!TwitchLogin().IsMatch(login)) throw new ArgumentException("Invalid Twitch channel login.");
@@ -87,7 +104,8 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         }
     }
 
-    private async Task<BrowserReply?> QueryAsync(BrowserTarget target, string method, string? login, CancellationToken cancellationToken)
+    private async Task<BrowserReply?> QueryAsync(BrowserTarget target, string method, string? login, CancellationToken cancellationToken,
+        OshiBrowserMutation? mutation = null)
     {
         if (!registration.IsPairedHere(target)) return null;
         var gate = _requests[target.Id];
@@ -100,7 +118,8 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
                 PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             await pipe.ConnectAsync(250, timeout.Token).ConfigureAwait(false);
             var id = Guid.NewGuid().ToString("N");
-            await WriteFrameAsync(pipe, new { version = Version, id, method, login }, timeout.Token).ConfigureAwait(false);
+            var scope = method.StartsWith("oshi_", StringComparison.Ordinal) ? registration.InstallKey : null;
+            await WriteFrameAsync(pipe, new { version = Version, id, method, login, scope, mutation }, timeout.Token).ConfigureAwait(false);
             var frame = await ReadFrameAsync(pipe, timeout.Token).ConfigureAwait(false);
             if (frame is null) return null;
             var reply = JsonSerializer.Deserialize<BrowserReply>(frame, Json);
@@ -134,7 +153,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         try
         {
             var watchSupported = 0;
-            void EnableWatch() => Interlocked.Exchange(ref watchSupported, 1);
+            void EnableWatch(int capabilities) => Interlocked.Exchange(ref watchSupported, capabilities);
             var read = ReadBrowserReplyAsync(input, registration, EnableWatch, lifetime.Token);
             while (registration.IsPairedHere(target))
             {
@@ -150,7 +169,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
                     requestTimeout.CancelAfter(TimeSpan.FromSeconds(4));
                     var request = await ReadFrameAsync(pipe, requestTimeout.Token).ConfigureAwait(false);
                     if (request is null || !registration.IsPairedHere(target)) continue;
-                    if (Volatile.Read(ref watchSupported) == 0 && UnavailableWatchReply(request) is { } unavailable)
+                    if (UnavailableBrowserReply(request, Volatile.Read(ref watchSupported)) is { } unavailable)
                     {
                         await WriteFrameAsync(pipe, unavailable, requestTimeout.Token).ConfigureAwait(false);
                         continue;
@@ -202,19 +221,25 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         catch (Exception exception) when (exception is IOException or TimeoutException or OperationCanceledException) { }
     }
 
-    private static BrowserReply? UnavailableWatchReply(byte[] frame)
+    private static BrowserReply? UnavailableBrowserReply(byte[] frame, int capabilities)
     {
         using var request = JsonDocument.Parse(frame);
         var root = request.RootElement;
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("method", out var method)
-            || method.ValueKind != JsonValueKind.String || method.GetString() is not ("watch_channels" or "open_watch_channel")
+            || method.ValueKind != JsonValueKind.String
+            || method.GetString() switch
+            {
+                "watch_channels" or "open_watch_channel" => capabilities >= 1,
+                "oshi_tabs" or "oshi_mutate" => capabilities >= 2,
+                _ => true
+            }
             || !root.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String)
             return null;
         return new(Version, id.GetString()!, "unavailable", []);
     }
 
     private static async Task<byte[]?> ReadBrowserReplyAsync(Stream input, BrowserRegistration registration,
-        Action enableWatch, CancellationToken token)
+        Action<int> enableWatch, CancellationToken token)
     {
         while (await ReadFrameAsync(input, token).ConfigureAwait(false) is { } frame)
         {
@@ -223,7 +248,8 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
                 && message.RootElement.TryGetProperty("event", out var name)
                 && name.ValueKind == JsonValueKind.String && name.GetString() == "watch_changed")
             {
-                enableWatch();
+                enableWatch(message.RootElement.TryGetProperty("managed", out var managed)
+                    && managed.ValueKind == JsonValueKind.True ? 2 : 1);
                 await SignalWatchChangeAsync(registration).ConfigureAwait(false);
                 continue;
             }
@@ -267,8 +293,13 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         await stream.FlushAsync(token).ConfigureAwait(false);
     }
 
-    private sealed record BrowserReply(int Version, string Id, string Status, string[] Logins, string[]? ActiveLogins = null);
+    private sealed record BrowserReply(int Version, string Id, string Status, string[] Logins, string[]? ActiveLogins = null,
+        OshiBrowserTab[]? ManagedTabs = null);
 }
 
 internal sealed record BrowserGiftResult(string Status, string[] Logins);
 internal sealed record BrowserWatchSnapshot(string Browser, bool Available, string[] Logins, string[] ActiveLogins);
+internal sealed record OshiBrowserTab(int TabId, string Login, string Revision, OshiChannelKey? Channel = null);
+internal sealed record OshiBrowserSnapshot(string Browser, string Status, string[] Logins, OshiBrowserTab[] Tabs);
+internal sealed record OshiBrowserMutation(string Action, string Assignment, int? TabId = null, string? Revision = null,
+    string? ExpectedLogin = null, OshiChannelKey? Channel = null);

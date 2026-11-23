@@ -12,6 +12,8 @@ internal sealed class BrowserRegistration(InstallProfile profile)
         new("chrome", "Google Chrome", @"Google\Chrome", "hnomfkgbacjeiocjcgbnnoaaloleefjf")
     ];
 
+    public string InstallKey => profile.Key;
+
     public BrowserPairing[] GetPairings() => Targets.Select(target =>
     {
         var registered = ReadManifest(target);

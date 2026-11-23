@@ -12,8 +12,9 @@ const nonChannelRoutes = new Set(["activate", "bits", "browse", "checkout", "cre
   "prime", "products", "search", "settings", "signup", "store", "subscriptions", "turbo", "videos", "wallet"]);
 
 function channelLogin(tab) {
-  if (!tab.url) return undefined;
-  const url = new URL(tab.url);
+  const location = tab.pendingUrl ?? tab.url;
+  if (!location) return undefined;
+  const url = new URL(location);
   if (url.origin !== "https://www.twitch.tv") return undefined;
   const login = /^\/([a-z0-9_]{1,25})\/?$/i.exec(url.pathname)?.[1].toLowerCase();
   return login && !nonChannelRoutes.has(login) ? login : undefined;
@@ -61,6 +62,84 @@ async function openChannel(login) {
   return { status: "complete", logins: [] };
 }
 
+const managedTabKey = "oshiManagedTabs";
+const identifier = /^[a-f0-9]{32}$/;
+let managedCommands = Promise.resolve();
+
+async function readManagedTabs(scope, channels) {
+  const { [managedTabKey]: stored = {} } = await chrome.storage.session.get(managedTabKey);
+  const tabs = Object.entries(stored).flatMap(([tabId, mark]) => {
+    const current = channels.find(({ tab }) => tab.id === Number(tabId));
+    return current?.login === mark.login && mark.scope === scope
+      ? [{ tabId: Number(tabId), login: mark.login, revision: mark.revision, channel: mark.channel }] : [];
+  });
+  return { stored, tabs };
+}
+
+async function managedCommand(request) {
+  if (!/^[a-f0-9]{64}$/.test(request.scope)) return { status: "unavailable", logins: [] };
+  const channels = await channelTabs();
+  const { stored, tabs } = await readManagedTabs(request.scope, channels);
+  const logins = [...new Set(channels.map(({ login }) => login))];
+  const snapshot = () => logins.length <= 500 && tabs.length <= 50
+    ? { status: "complete", logins, managedTabs: tabs }
+    : { status: "partial", logins: [] };
+  if (request.method === "oshi_tabs") return snapshot();
+
+  const { action, tabId, revision, expectedLogin, assignment, channel } = request.mutation ?? {};
+  const login = request.login?.toLowerCase();
+  if (!["open", "switch", "close"].includes(action) || !identifier.test(assignment))
+    return { status: "unavailable", logins: [] };
+  if (action !== "close" && (!channelLoginPattern.test(login ?? "") || nonChannelRoutes.has(login) ||
+      channel?.provider !== "twitch" || typeof channel.id !== "string" || !/^\d{1,32}$/.test(channel.id)))
+    return { status: "unavailable", logins: [] };
+
+  if (tabs.some(tab => tab.revision === assignment))
+    return { status: "complete", logins: [] };
+  if (action !== "close" && channels.some(channel => channel.login === login))
+    return { status: "partial", logins: [] };
+
+  if (action === "open") {
+    const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+    const tabWindows = new Set(channels.map(({ tab }) => tab.windowId));
+    const target = windows.find(window => window.focused && tabWindows.has(window.id))
+      ?? windows.find(window => tabWindows.has(window.id)) ?? windows.find(window => window.focused) ?? windows[0];
+    if (!target) return { status: "unavailable", logins: [] };
+    const tab = await chrome.tabs.create({ windowId: target.id, url: "https://www.twitch.tv/" + login, active: false });
+    stored[tab.id] = { scope: request.scope, login, revision: assignment, channel };
+  } else {
+    if (!tabs.some(tab => tab.tabId === tabId && tab.revision === revision && tab.login === expectedLogin))
+      return { status: "partial", logins: [] };
+    const current = await chrome.tabs.get(tabId);
+    if (channelLogin(current) !== expectedLogin || channelLogin({ url: current.url }) !== expectedLogin)
+      return { status: "partial", logins: [] };
+    if (action === "close") {
+      await chrome.tabs.remove(tabId);
+      delete stored[tabId];
+    } else {
+      await chrome.tabs.update(tabId, { url: "https://www.twitch.tv/" + login });
+      stored[tabId] = { scope: request.scope, login, revision: assignment, channel };
+    }
+  }
+  await chrome.storage.session.set({ [managedTabKey]: stored });
+  return { status: "complete", logins: [] };
+}
+
+function queueManaged(operation) {
+  const next = managedCommands.then(operation);
+  managedCommands = next.catch(() => {});
+  return next;
+}
+
+function releaseManaged(tabId, url) {
+  void queueManaged(async () => {
+    const { [managedTabKey]: stored = {} } = await chrome.storage.session.get(managedTabKey);
+    if (!stored[tabId] || (url && channelLogin({ url }) === stored[tabId].login)) return;
+    delete stored[tabId];
+    await chrome.storage.session.set({ [managedTabKey]: stored });
+  }).catch(() => {});
+}
+
 function scheduleTabChange() {
   clearTimeout(tabChange);
   tabChange = setTimeout(async () => {
@@ -70,7 +149,7 @@ function scheduleTabChange() {
       const tabs = await readWatchTabs();
       const signature = JSON.stringify([tabs.logins, tabs.activeLogins.sort()]);
       if (connection !== port || signature === lastWatchSignature) return;
-      port.postMessage({ event: "watch_changed" });
+      port.postMessage({ event: "watch_changed", managed: true });
       lastWatchSignature = signature;
     } catch {
       // The desktop periodically checks the bridge in case an event arrives during disconnect.
@@ -78,13 +157,14 @@ function scheduleTabChange() {
   }, 180);
 }
 
-chrome.tabs.onUpdated.addListener((_, change, tab) => {
+chrome.tabs.onUpdated.addListener((id, change, tab) => {
+  if (change.url || change.status === "complete") releaseManaged(id, change.url ?? tab.url);
   // Navigation away can omit the new URL when it leaves the permitted host.
   if (change.url || change.status === "complete" || tab.url?.startsWith("https://www.twitch.tv/")) scheduleTabChange();
 });
 chrome.tabs.onCreated.addListener(scheduleTabChange);
-chrome.tabs.onRemoved.addListener(scheduleTabChange);
-chrome.tabs.onReplaced.addListener(scheduleTabChange);
+chrome.tabs.onRemoved.addListener(id => { releaseManaged(id); scheduleTabChange(); });
+chrome.tabs.onReplaced.addListener((_, oldId) => { releaseManaged(oldId); scheduleTabChange(); });
 chrome.tabs.onActivated.addListener(scheduleTabChange);
 
 function connect() {
@@ -98,13 +178,14 @@ function connect() {
     if (connection === port) connection = undefined;
   });
   port.onMessage.addListener(async (request) => {
-    if (request?.version !== 1 || !["gift_channels", "watch_channels", "open_watch_channel"].includes(request.method) ||
+    if (request?.version !== 1 || !["gift_channels", "watch_channels", "open_watch_channel", "oshi_tabs", "oshi_mutate"].includes(request.method) ||
         typeof request.id !== "string" || !/^[a-f0-9]{32}$/.test(request.id)) return;
     let result;
     try {
       if (request.method === "gift_channels") result = await readGiftTabs();
       else if (request.method === "watch_channels") result = await readWatchTabs();
-      else result = await openChannel(request.login);
+      else if (request.method === "open_watch_channel") result = await queueManaged(() => openChannel(request.login));
+      else result = await queueManaged(() => managedCommand(request));
     } catch {
       result = { status: "unavailable", logins: [] };
     }
