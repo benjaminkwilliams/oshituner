@@ -19,6 +19,8 @@
     <Content Include="../../browser/chrome/manifest.json" Link="browser/chrome/manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../browser/worker.js" Link="browser/edge/worker.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../browser/worker.js" Link="browser/chrome/worker.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../browser/player-recovery.js" Link="browser/edge/player-recovery.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../browser/player-recovery.js" Link="browser/chrome/player-recovery.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.4.0" />
     <PackageReference Include="SkiaSharp" Version="3.119.4" />

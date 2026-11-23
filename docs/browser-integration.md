@@ -18,6 +18,10 @@ The WATCH column shows **Watching** for a live channel with an open Twitch chann
 
 Reload the unpacked extension after updating the application. The bridge only reads Twitch channel tabs in the browser profile running the extension.
 
+## Twitch player recovery
+
+When a Twitch channel player displays the English video download cancellation prompt with **Error #1000**, the extension clicks **Reload Player** in that tab. It makes one more attempt after 20 seconds if the same prompt persists. This recovery runs within the affected tab.
+
 ## Gifted channel discovery
 
 When the paired application requests discovery, the extension reads candidate Twitch channel logins from an existing Gifted Subscriptions tab. It leaves the active tab, window focus and other pages alone. The app must verify candidate subscriptions through its own Twitch sign-in. The bridge sends candidate logins and status only.
