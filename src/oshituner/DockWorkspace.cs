@@ -100,6 +100,8 @@ internal sealed partial class DockWorkspace : Grid
         Save();
     }
 
+    public IEnumerable<Window> FloatingWindows => _groups.Select(group => group.Window).OfType<Window>();
+
     public void TrackDialog(Window dialog, string id)
     {
         dialog.SourceInitialized += (_, _) => WindowPlacement.Apply(dialog, _windowPositions.GetValueOrDefault(id), _shell);

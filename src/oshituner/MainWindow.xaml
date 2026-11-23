@@ -8,8 +8,7 @@
         MinHeight="560"
         Background="{DynamicResource WindowBackground}" FontFamily="{DynamicResource ApplicationFont}"
         Foreground="{DynamicResource PrimaryForeground}"
-        Loaded="Window_Loaded"
-        Closing="Window_Closing">
+        Loaded="Window_Loaded">
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_Settings">

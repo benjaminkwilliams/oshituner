@@ -85,6 +85,7 @@ public partial class MainWindow : Window
             if (WindowState == WindowState.Minimized) HideToTray();
             else _restoreState = WindowState;
         };
+        Closing += Window_Closing;
         _ = DesktopTray.ObserveExitAsync(_profile, ExitDesktop, _lifetime.Token);
     }
 
@@ -144,7 +145,9 @@ public partial class MainWindow : Window
     {
         if (_hiddenToTray || _exitRequested || _stoppingDesktop) return;
         _hiddenToTray = true;
-        _hiddenWindows.AddRange(OwnedWindows.OfType<Window>().Where(window => window.IsVisible));
+        // Windows can temporarily hide owned HWNDs before WPF reports the owner as minimized.
+        _hiddenWindows.AddRange(_workspace.FloatingWindows.Union(
+            OwnedWindows.OfType<Window>().Where(window => window.Visibility == Visibility.Visible)));
         foreach (var window in _hiddenWindows) window.Hide();
         Hide();
     }
@@ -163,7 +166,7 @@ public partial class MainWindow : Window
         Activate();
     }
 
-    private void Window_Closing(object sender, CancelEventArgs e)
+    private void Window_Closing(object? sender, CancelEventArgs e)
     {
         if (!_exitRequested)
         {
