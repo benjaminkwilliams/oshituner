@@ -4,52 +4,118 @@
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
         <SolidColorBrush x:Key="WindowBackground" Color="#0E0E10" />
+        <SolidColorBrush x:Key="WorkspaceBackground" Color="#0E0E10" />
+        <SolidColorBrush x:Key="DockPanelBackground" Color="#18181B" />
+        <SolidColorBrush x:Key="FloatingPanelBackground" Color="#18181B" />
+        <SolidColorBrush x:Key="DockHeaderBackground" Color="#252529" />
+        <SolidColorBrush x:Key="PrimaryForeground" Color="#EFEFF1" />
         <SolidColorBrush x:Key="PanelBackground" Color="#18181B" />
         <SolidColorBrush x:Key="MutedForeground" Color="#ADADB8" />
         <SolidColorBrush x:Key="AccentBrush" Color="#9147FF" />
-        <SolidColorBrush x:Key="LiveBrush" Color="#EB0400" />
+        <SolidColorBrush x:Key="LiveBrush" Color="#FF6666" />
+        <SolidColorBrush x:Key="SubBrush" Color="#FFD700" />
+        <SolidColorBrush x:Key="InputBackground" Color="#15151A" />
+        <SolidColorBrush x:Key="BorderBrush" Color="#41414B" />
+        <SolidColorBrush x:Key="AlternateRowBackground" Color="#1F1F23" />
+        <SolidColorBrush x:Key="SelectedBackground" Color="#493376" />
+        <SolidColorBrush x:Key="SelectedForeground" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="AccentForeground" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="DisabledForeground" Color="#B0B0B8" />
+        <FontFamily x:Key="ApplicationFont">Segoe UI</FontFamily>
+
+        <Style x:Key="ThemeControl" TargetType="Control">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryForeground}" />
+            <Setter Property="FontFamily" Value="{DynamicResource ApplicationFont}" />
+        </Style>
+        <Style TargetType="Window" BasedOn="{StaticResource ThemeControl}">
+            <Setter Property="Background" Value="{DynamicResource WindowBackground}" />
+        </Style>
+        <Style TargetType="Label" BasedOn="{StaticResource ThemeControl}" />
+        <Style TargetType="Menu" BasedOn="{StaticResource ThemeControl}">
+            <Setter Property="Background" Value="{DynamicResource DockHeaderBackground}" />
+        </Style>
+        <Style TargetType="MenuItem" BasedOn="{StaticResource ThemeControl}" />
+        <Style TargetType="ContextMenu" BasedOn="{StaticResource ThemeControl}">
+            <Setter Property="Background" Value="{DynamicResource PanelBackground}" />
+        </Style>
+        <Style TargetType="ComboBox" BasedOn="{StaticResource ThemeControl}">
+            <Setter Property="Background" Value="{DynamicResource InputBackground}" />
+        </Style>
+        <Style TargetType="ListBox" BasedOn="{StaticResource ThemeControl}">
+            <Setter Property="Background" Value="{DynamicResource InputBackground}" />
+        </Style>
+        <Style TargetType="ToggleButton" BasedOn="{StaticResource ThemeControl}">
+            <Setter Property="Background" Value="{DynamicResource DockHeaderBackground}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Style.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectedBackground}" />
+                    <Setter Property="Foreground" Value="{DynamicResource SelectedForeground}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
 
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#EFEFF1" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryForeground}" />
+            <Setter Property="FontFamily" Value="{DynamicResource ApplicationFont}" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
         <Style TargetType="TextBox">
-            <Setter Property="Background" Value="#0E0E10" />
-            <Setter Property="Foreground" Value="#EFEFF1" />
-            <Setter Property="BorderBrush" Value="#3F3F46" />
+            <Setter Property="Background" Value="{DynamicResource InputBackground}" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryForeground}" />
+            <Setter Property="FontFamily" Value="{DynamicResource ApplicationFont}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="Padding" Value="10,7" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         <Style TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentForeground}" />
+            <Setter Property="FontFamily" Value="{DynamicResource ApplicationFont}" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="16,9" />
             <Setter Property="Cursor" Value="Hand" />
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="{DynamicResource DisabledForeground}" />
+                    <Setter Property="Background" Value="{DynamicResource PanelBackground}" />
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectedBackground}" />
+                    <Setter Property="Foreground" Value="{DynamicResource SelectedForeground}" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
         <Style TargetType="DataGrid">
-            <Setter Property="Background" Value="{StaticResource PanelBackground}" />
-            <Setter Property="Foreground" Value="#EFEFF1" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryForeground}" />
+            <Setter Property="FontFamily" Value="{DynamicResource ApplicationFont}" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="GridLinesVisibility" Value="Horizontal" />
-            <Setter Property="HorizontalGridLinesBrush" Value="#2C2C31" />
-            <Setter Property="RowBackground" Value="#18181B" />
-            <Setter Property="AlternatingRowBackground" Value="#1F1F23" />
+            <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="RowBackground" Value="{DynamicResource PanelBackground}" />
+            <Setter Property="AlternatingRowBackground" Value="{DynamicResource AlternateRowBackground}" />
             <Setter Property="HeadersVisibility" Value="Column" />
             <Setter Property="CanUserAddRows" Value="False" />
             <Setter Property="IsReadOnly" Value="True" />
             <Setter Property="AutoGenerateColumns" Value="False" />
         </Style>
         <Style TargetType="DataGridColumnHeader">
-            <Setter Property="Background" Value="#252529" />
-            <Setter Property="Foreground" Value="#ADADB8" />
+            <Setter Property="Background" Value="{DynamicResource DockHeaderBackground}" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedForeground}" />
             <Setter Property="Padding" Value="10,9" />
             <Setter Property="BorderThickness" Value="0,0,0,1" />
-            <Setter Property="BorderBrush" Value="#3F3F46" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
         </Style>
         <Style TargetType="DataGridCell">
             <Setter Property="Padding" Value="10,7" />
             <Setter Property="BorderThickness" Value="0" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectedBackground}" />
+                    <Setter Property="Foreground" Value="{DynamicResource SelectedForeground}" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
     </Application.Resources>
 </Application>

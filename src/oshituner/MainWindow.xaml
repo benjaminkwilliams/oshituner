@@ -6,12 +6,19 @@
         Height="760"
         MinWidth="860"
         MinHeight="560"
-        Background="{StaticResource WindowBackground}"
-        Foreground="#EFEFF1"
+        Background="{DynamicResource WindowBackground}" FontFamily="{DynamicResource ApplicationFont}"
+        Foreground="{DynamicResource PrimaryForeground}"
         Loaded="Window_Loaded"
         Closing="Window_Closing">
     <DockPanel>
         <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_Settings">
+                <MenuItem Header="_Theme" Click="Theme_Click" />
+                <MenuItem Header="_Browser Integration" Click="BrowserIntegration_Click" />
+            </MenuItem>
+            <MenuItem Header="_Windows">
+                <MenuItem Header="_Twitch Status" Click="ShowTwitchStatus_Click" />
+            </MenuItem>
             <MenuItem Header="_Plugins">
                 <MenuItem Header="_Twitch">
                     <MenuItem Header="_Client ID" Click="ClientId_Click" />
@@ -22,7 +29,7 @@
                 <MenuItem Header="Copy _Codex configuration" Click="CopyCodexConfiguration_Click" />
             </MenuItem>
         </Menu>
-    <Grid Margin="28">
+    <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -30,24 +37,18 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="0,0,0,22">
-            <StackPanel>
-                <TextBlock Text="Oshi Tuner" FontSize="26" FontWeight="Bold" />
-                <TextBlock Text="Live status and subs for your followed Twitch channels"
-                           Foreground="{StaticResource MutedForeground}"
-                           Margin="0,5,0,0" />
-            </StackPanel>
+        <Grid Grid.Row="0" Margin="0,0,0,8">
             <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal">
                 <Button x:Name="ConnectButton" Content="Connect Twitch" Click="ConnectButton_Click" Margin="0,0,6,0" />
                 <Button x:Name="DisconnectButton" Content="Disconnect" Click="DisconnectButton_Click" Margin="0,0,6,0" Visibility="Collapsed" />
                 <Button x:Name="CancelConnectButton" Content="Cancel" Click="CancelAuthorizationButton_Click" Margin="0,0,6,0" Visibility="Collapsed" />
-                <Border Background="{StaticResource PanelBackground}" CornerRadius="16" Padding="13,7">
+                <Border Background="{DynamicResource PanelBackground}" CornerRadius="16" Padding="13,7">
                     <TextBlock x:Name="ConnectionStatusText" Text="Not connected" />
                 </Border>
             </StackPanel>
         </Grid>
 
-        <Border x:Name="AuthorizationPanel" Grid.Row="1" Background="#211A2B" CornerRadius="8" Padding="16" Margin="0,0,0,14" Visibility="Collapsed">
+        <Border x:Name="AuthorizationPanel" Grid.Row="1" Background="{DynamicResource PanelBackground}" CornerRadius="8" Padding="16" Margin="0,0,0,14" Visibility="Collapsed">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -58,90 +59,23 @@
                     <TextBlock Text="Finish signing in to Twitch" FontWeight="SemiBold" />
                     <TextBlock x:Name="AuthorizationCodeText" Text="Waiting for Twitch..." FontSize="20" FontWeight="Bold" Margin="0,5,0,0" />
                     <TextBlock Text="Open the activation page and enter this code. You only need to approve access once."
-                               Foreground="{StaticResource MutedForeground}"
+                               Foreground="{DynamicResource MutedForeground}"
                                Margin="0,4,0,0" />
                 </StackPanel>
                 <Button x:Name="OpenActivationButton" Grid.Column="1" Content="Open Twitch" Click="OpenActivationButton_Click" VerticalAlignment="Center" Margin="0,0,8,0" IsEnabled="False" />
-                <Button Grid.Column="2" Content="Cancel" Click="CancelAuthorizationButton_Click" VerticalAlignment="Center" Background="#3F3F46" />
+                <Button Grid.Column="2" Content="Cancel" Click="CancelAuthorizationButton_Click" VerticalAlignment="Center" Background="{DynamicResource DockHeaderBackground}" />
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1" Margin="0,0,0,14" x:Name="ListToolbar" Visibility="Collapsed">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock x:Name="FollowCountText" Text="0 followed" FontSize="16" FontWeight="SemiBold" />
-                <TextBlock Text="  ·  " Foreground="{StaticResource MutedForeground}" />
-                <TextBlock x:Name="LiveCountText" Text="0 live" FontSize="16" FontWeight="SemiBold" />
-            </StackPanel>
-            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
-                <Button Content="Open on Twitch" Click="OpenChannel_Click" Margin="0,0,6,0" />
-                <Button Content="Sort…" Click="EditSort_Click" Margin="0,0,6,0" />
-                <Button x:Name="RefreshButton" Content="Refresh now" Click="RefreshButton_Click" />
-
-            </StackPanel>
-        </Grid>
-
-        <Border Grid.Row="2" Background="{StaticResource PanelBackground}" CornerRadius="8">
-            <Grid>
-                <DataGrid x:Name="FollowedChannelsGrid" ItemsSource="{Binding FollowedChannels}" AlternationCount="2" CanUserSortColumns="False">
-                    <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="STATUS" Width="92">
-                            <DataGridTemplateColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding Status}" FontWeight="Bold">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Setter Property="Foreground" Value="{StaticResource MutedForeground}" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsLive}" Value="True">
-                                                        <Setter Property="Foreground" Value="{StaticResource LiveBrush}" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                </DataTemplate>
-                            </DataGridTemplateColumn.CellTemplate>
-                        </DataGridTemplateColumn>
-                        <DataGridTextColumn Header="SUB" Binding="{Binding SubscriptionStatus}" Width="90">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="{StaticResource MutedForeground}" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Subbed}" Value="True">
-                                            <Setter Property="Foreground" Value="Gold" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Header="CHANNEL" Binding="{Binding DisplayName}" Width="170" />
-                        <DataGridTextColumn Header="LOGIN" Binding="{Binding Login}" Width="140" />
-                        <DataGridTextColumn Header="CATEGORY" Binding="{Binding GameName}" Width="170" />
-                        <DataGridTextColumn Header="STREAM TITLE" Binding="{Binding StreamTitle}" Width="*" />
-                        <DataGridTextColumn Header="VIEWERS" Binding="{Binding ViewerCount, StringFormat=N0}" Width="90" />
-                        <DataGridTextColumn Header="FOLLOWED" Binding="{Binding FollowedAt, StringFormat={}{0:yyyy-MM-dd}}" Width="110" />
-                    </DataGrid.Columns>
-                </DataGrid>
-                <StackPanel x:Name="EmptyStatePanel" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Visible">
-                    <TextBlock Text="Connect your Twitch account to see your follows"
-                               FontSize="18"
-                               FontWeight="SemiBold"
-                               HorizontalAlignment="Center" />
-                    <TextBlock Text="Live channels will be marked LIVE; offline channels stay in the list."
-                               Foreground="{StaticResource MutedForeground}"
-                               Margin="0,8,0,0"
-                               HorizontalAlignment="Center" />
-                </StackPanel>
-            </Grid>
-        </Border>
+        <ContentControl x:Name="WorkspaceHost" Grid.Row="2" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
 
         <StackPanel Grid.Row="3">
         <TextBlock x:Name="MessageText"
                    Text="Set your Twitch Client ID under Plugins > Twitch > Client ID."
-                   Foreground="{StaticResource MutedForeground}"
+                   Foreground="{DynamicResource MutedForeground}"
                    TextWrapping="Wrap"
                    Margin="2,14,2,0" />
-        <TextBlock x:Name="ControlStatus" Foreground="{StaticResource MutedForeground}" TextWrapping="Wrap" />
+        <TextBlock x:Name="ControlStatus" Foreground="{DynamicResource MutedForeground}" TextWrapping="Wrap" />
         </StackPanel>
     </Grid>
     </DockPanel>

@@ -17,6 +17,7 @@ public partial class AboutWindow : Window
     private void Donations_Click(object sender, RoutedEventArgs args) => OpenLink("donations");
     private void License_Click(object sender, RoutedEventArgs args) => OpenLink("license");
     private void McpLicense_Click(object sender, RoutedEventArgs args) => OpenLink("mcp_license");
+    private void ImageDecoderLicense_Click(object sender, RoutedEventArgs args) => OpenLink("image_decoder_license");
     private void Close_Click(object sender, RoutedEventArgs args) => _control.CloseAbout();
 
     private void OpenLink(string link)

@@ -122,13 +122,19 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
 
             try
             {
-                var result = await control.OnUiAsync(() => Execute(control, method.GetString()!, args), http.RequestAborted);
+                var result = method.GetString() == "import_theme_image"
+                    ? await control.ImportThemeImageAsync(Required<string>(args, "source"), http.RequestAborted)
+                    : await control.OnUiAsync(() => Execute(control, method.GetString()!, args), http.RequestAborted);
                 return id.HasValue ? Results.Json(new { jsonrpc = "2.0", id, result }, Json) : Results.NoContent();
             }
             catch (MissingMethodException) { return id.HasValue ? Error(id, -32601, "Unknown method.") : Results.NoContent(); }
             catch (Exception exception) when (exception is ArgumentException or JsonException or KeyNotFoundException)
             {
                 return id.HasValue ? Error(id, -32602, "Invalid named parameters.") : Results.NoContent();
+            }
+            catch (InvalidDataException exception)
+            {
+                return id.HasValue ? Error(id, -32602, exception.Message) : Results.NoContent();
             }
             catch (InvalidOperationException exception)
             {
@@ -149,6 +155,25 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
         {
             case "get_state": return control.GetState();
             case "get_channels": return control.GetChannels(Optional<bool?>(args, "online"), Optional<bool?>(args, "subbed"));
+            case "get_browser_pairings": return control.GetBrowserPairings();
+            case "set_browser_pairing": return control.SetBrowserPairing(Required<string>(args, "browser"),
+                Required<bool>(args, "paired"), Optional<bool?>(args, "replace") ?? false);
+            case "open_browser_integration": control.OpenBrowserIntegration(); break;
+            case "close_browser_integration": control.CloseBrowserIntegration(); break;
+            case "get_theme": return control.GetTheme();
+            case "set_theme": return control.SetTheme(Required<ThemeSettings>(args, "theme"));
+            case "reset_theme": return control.ResetTheme();
+            case "open_theme": control.OpenTheme(); break;
+            case "close_theme": control.CloseTheme(); break;
+            case "get_workspace": return control.GetWorkspace();
+            case "open_pane": control.OpenPane(Required<string>(args, "id")); return control.GetWorkspace();
+            case "close_pane": control.ClosePane(Required<string>(args, "id")); return control.GetWorkspace();
+            case "move_pane": control.MovePane(Required<string>(args, "id"), Optional<DockLocation?>(args, "dock")); return control.GetWorkspace();
+            case "join_floating_group": control.JoinFloatingGroup(Required<string>(args, "id"), Required<string>(args, "peerId")); return control.GetWorkspace();
+            case "redock_floating_group": control.RedockFloatingGroup(Required<string>(args, "id"), Required<DockLocation>(args, "dock")); return control.GetWorkspace();
+            case "pin_pane": control.PinPane(Required<string>(args, "id"), Required<bool>(args, "pinned")); return control.GetWorkspace();
+            case "get_auto_refresh": return control.GetAutoRefresh();
+            case "set_auto_refresh": control.SetAutoRefresh(Required<int>(args, "minutes")); return control.GetAutoRefresh();
             case "get_sort": return control.GetSort();
             case "get_about": return AppInformation.Current;
             case "set_client_id": control.SetClientId(Provider(), Required<string>(args, "clientId")); break;

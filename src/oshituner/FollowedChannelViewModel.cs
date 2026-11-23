@@ -20,10 +20,14 @@ internal sealed record FollowedChannelRow(
     string GameName,
     string StreamTitle,
     int ViewerCount,
-    int? SubscriptionTier = null)
+    int? SubscriptionTier = null,
+    bool? Gifted = null,
+    bool SubscriptionCheckStale = false)
 {
     public bool IsLive => Online == true;
     public string Status => Online is true ? "LIVE" : Online is false ? "Offline" : "Unknown";
+    public string SubscriptionDetail => SubscriptionCheckStale ? "Twitch could not verify this subscription on the last refresh."
+        : Gifted == true ? "Gifted Twitch subscription" : SubscriptionStatus;
     public string SubscriptionStatus => Subbed switch
     {
         true when SubscriptionTier is >= 1 and <= 3 => $"Tier{SubscriptionTier}",

@@ -14,9 +14,31 @@ internal sealed partial class TunerSession : IDisposable
         _store = new(profile);
         _settings = _store.Read();
         _tokens = new(profile);
+        _browserDiscovery = new(new BrowserRegistration(profile));
         ClientId = Environment.GetEnvironmentVariable("TWITCH_CLIENT_ID")?.Trim() ?? _settings.TwitchClientId ?? "";
         Sort = _settings.Sort is { } saved && saved.IsValid() ? saved : GridSort.Default();
     }
+
+    public static IReadOnlyList<int> RefreshIntervals { get; } = [5, 10, 15, 30, 60];
+
+    public int AutoRefreshMinutes => _settings.AutoRefreshMinutes is { } minutes && RefreshIntervals.Contains(minutes) ? minutes : 30;
+
+    public void SetAutoRefreshMinutes(int minutes)
+    {
+        if (!RefreshIntervals.Contains(minutes))
+            throw new ArgumentException("Choose 5, 10, 15, 30, or 60 minutes.");
+        if (minutes == AutoRefreshMinutes) return;
+        SaveSettings(_settings with { AutoRefreshMinutes = minutes });
+        Changed?.Invoke();
+    }
+
+    public ThemeSettings Theme => _settings.Theme is { } theme && theme.IsValid() ? theme : new();
+
+    public void SetTheme(ThemeSettings theme) => SaveSettings(_settings with { Theme = theme });
+
+    public WorkspaceState? Workspace => _settings.Workspace;
+
+    public void SetWorkspace(WorkspaceState state) => SaveSettings(_settings with { Workspace = state });
 
     public event Action? Changed;
     public GridSort Sort { get; private set; }

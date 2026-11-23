@@ -9,12 +9,14 @@ internal sealed partial class TunerSession
 {
     private readonly HttpClient _http;
     private readonly TokenStore _tokens;
+    private readonly BrowserDiscovery _browserDiscovery;
     private CancellationTokenSource? _operation;
     private bool _disposed;
 
     public string ClientId { get; private set; }
     public string? UserId { get; private set; }
     public bool CanReadSubscriptions { get; private set; }
+    public string GiftDiscoveryStatus { get; private set; } = "not_checked";
     public bool Busy => _operation is not null;
     public bool HasSavedAuthorization => _tokens.HasSavedAuthorization;
     public Uri? ActivationUri { get; private set; }
@@ -73,11 +75,7 @@ internal sealed partial class TunerSession
             var live = api.GetFollowedLiveStreamsAsync(access, operation.Token);
             await Task.WhenAll(followed, live);
             var follows = (await followed).DistinctBy(channel => channel.Id).ToArray();
-            var subscriptions = access.CanReadSubscriptions
-                ? await api.GetSubscriptionsAsync(access, follows, operation.Token)
-                : new Dictionary<string, SubscriptionCheck>();
-            operation.Token.ThrowIfCancellationRequested();
-            SetChannels(follows, await live, subscriptions);
+            await RefreshChannelRowsAsync(api, access, follows, await live, operation.Token);
         }
         catch (OperationCanceledException) when (operation.IsCancellationRequested)
         {
@@ -125,6 +123,7 @@ internal sealed partial class TunerSession
     {
         UserId = null;
         CanReadSubscriptions = false;
+        GiftDiscoveryStatus = "not_checked";
         _rows = [];
         Message = message;
     }
@@ -137,29 +136,93 @@ internal sealed partial class TunerSession
         Changed?.Invoke();
     }
 
-    private void SetChannels(FollowedChannel[] follows, IReadOnlyList<LiveStream> live, Dictionary<string, SubscriptionCheck> subscriptions)
+    private async Task RefreshChannelRowsAsync(TwitchApiClient api, TwitchAccess access, FollowedChannel[] follows,
+        IReadOnlyList<LiveStream> followedLive, CancellationToken token)
     {
-        const int liveLimit = 2_000;
-        var covered = follows.OrderBy(channel => channel.FollowedAt).Take(liveLimit)
-            .Select(channel => channel.Id).ToHashSet(StringComparer.Ordinal);
-        var streams = live.ToLookup(stream => stream.UserId, StringComparer.Ordinal);
-        var previous = _rows.ToDictionary(row => row.ChannelId,
-            row => new SubscriptionCheck(row.Subbed, row.SubscriptionTier), StringComparer.Ordinal);
-        _rows = Sort.Apply(follows.Select(channel =>
-        {
-            var stream = streams[channel.Id].FirstOrDefault();
-            bool? online = stream is not null ? true : covered.Contains(channel.Id) ? false : null;
-            var subscription = subscriptions.TryGetValue(channel.Id, out var known)
-                ? known : CanReadSubscriptions ? previous.GetValueOrDefault(channel.Id) : default;
-            return new FollowedChannelRow("twitch", channel.Id, channel.DisplayName, channel.Login, channel.FollowedAt,
-                true, online, subscription.Subbed, stream?.GameName ?? "", stream?.Title ?? "", stream?.ViewerCount ?? 0,
-                subscription.Tier);
-        }));
+        const int followedLiveLimit = 2_000;
+        var followIds = follows.Select(channel => channel.Id).ToHashSet(StringComparer.Ordinal);
+        var oldRows = _rows.ToDictionary(row => row.ChannelId, StringComparer.Ordinal);
+        var subscriptions = new Dictionary<string, SubscriptionCheck>(StringComparer.Ordinal);
+        var extraChannels = new List<TwitchChannel>();
+        ExtraLiveStatus extraLive = new([], []);
+        GiftDiscoveryStatus = access.CanReadSubscriptions ? "unavailable" : "permission_required";
 
-        Message = follows.Length == 0 ? "You don’t follow any channels yet."
-            : follows.Length > liveLimit ? "Twitch limits live status to the first 2,000 channels you followed."
-            : !CanReadSubscriptions ? "Enable subs to check which followed channels you’re subbed to."
-            : "Twitch provides sub status for followed channels. Other subs may be missing.";
+        if (access.CanReadSubscriptions)
+        {
+            var rememberedForUser = _settings.RememberedTwitchGifts?.GetValueOrDefault(access.UserId) ?? [];
+            var known = rememberedForUser.DistinctBy(channel => channel.Id).ToDictionary(channel => channel.Id, StringComparer.Ordinal);
+            var discovery = await _browserDiscovery.GetGiftChannelsAsync(token);
+            GiftDiscoveryStatus = discovery.Status;
+            var knownLogins = known.Values.Select(channel => channel.Login)
+                .Concat(follows.Select(channel => channel.Login)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var discovered = await TryGetUsersAsync(api, access, discovery.Logins.Where(login => !knownLogins.Contains(login)), true, token);
+            var knownMetadata = await TryGetUsersAsync(api, access, known.Keys.Where(id => !followIds.Contains(id)), false, token);
+            var current = known.Values.Concat(knownMetadata).Concat(discovered)
+                .Concat(follows.Select(channel => new TwitchChannel(channel.Id, channel.Login, channel.DisplayName)))
+                .GroupBy(channel => channel.Id, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal);
+
+            subscriptions = await api.GetSubscriptionsAsync(access, current.Keys, token);
+            foreach (var (id, channel) in current)
+            {
+                var check = subscriptions.GetValueOrDefault(id);
+                if (check.Subbed == true && check.IsGift == true || known.ContainsKey(id))
+                    known[id] = channel;
+
+                if (!followIds.Contains(id) && (check.Subbed == true && check.IsGift == true
+                    || check.Subbed is null && oldRows.TryGetValue(id, out var old) && old.Gifted == true && old.Subbed == true))
+                    extraChannels.Add(channel);
+            }
+
+            extraLive = await api.GetLiveStatusAsync(access, extraChannels.Select(channel => channel.Id), token);
+            token.ThrowIfCancellationRequested();
+            var sortedKnown = known.Values.OrderBy(channel => channel.Id, StringComparer.Ordinal).ToArray();
+            if (!rememberedForUser.SequenceEqual(sortedKnown))
+            {
+                var perUser = new Dictionary<string, TwitchChannel[]>(_settings.RememberedTwitchGifts ?? [], StringComparer.Ordinal)
+                    { [access.UserId] = sortedKnown };
+                SaveSettings(_settings with { RememberedTwitchGifts = perUser });
+            }
+        }
+
+        token.ThrowIfCancellationRequested();
+        var covered = follows.OrderBy(channel => channel.FollowedAt).Take(followedLiveLimit)
+            .Select(channel => channel.Id).ToHashSet(StringComparer.Ordinal);
+        covered.UnionWith(extraLive.Covered);
+        var streams = followedLive.Concat(extraLive.Streams).ToLookup(stream => stream.UserId, StringComparer.Ordinal);
+
+        FollowedChannelRow CreateRow(string id, string name, string login, DateTimeOffset? followedAt)
+        {
+            var stream = streams[id].FirstOrDefault();
+            bool? online = stream is not null ? true : covered.Contains(id) ? false : null;
+            var subscription = subscriptions.GetValueOrDefault(id);
+            var stale = access.CanReadSubscriptions && subscription.Subbed is null
+                && oldRows.TryGetValue(id, out var old) && old.Subbed == true;
+            if (stale && oldRows.TryGetValue(id, out var previous))
+                subscription = new(true, previous.SubscriptionTier, previous.Gifted);
+            return new("twitch", id, name, login, followedAt, followedAt.HasValue, online, subscription.Subbed,
+                stream?.GameName ?? "", stream?.Title ?? "", stream?.ViewerCount ?? 0,
+                subscription.Tier, subscription.IsGift, stale);
+        }
+
+        _rows = Sort.Apply(follows.Select(channel => CreateRow(channel.Id, channel.DisplayName, channel.Login, channel.FollowedAt))
+            .Concat(extraChannels.Select(channel => CreateRow(channel.Id, channel.DisplayName, channel.Login, null))));
+        Message = !CanReadSubscriptions ? "Enable subs to show Twitch subscriptions."
+            : follows.Length > followedLiveLimit ? "Twitch limits followed live status to the first 2,000 follows."
+            : _rows.Any(row => row.SubscriptionCheckStale || row.Subbed is null || row.Online is null)
+                ? "Some Twitch channel details could not be verified on this refresh."
+                : _rows.Length == 0 ? "No followed channels or verified gifted subs." : "";
+    }
+
+    private async Task<IReadOnlyList<TwitchChannel>> TryGetUsersAsync(TwitchApiClient api, TwitchAccess access,
+        IEnumerable<string> channels, bool byLogin, CancellationToken token)
+    {
+        try { return await api.GetUsersAsync(access, channels, byLogin, token); }
+        catch (HttpRequestException exception) when (exception.StatusCode != HttpStatusCode.Unauthorized) { }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested) { }
+        catch (JsonException) { }
+        if (byLogin) GiftDiscoveryStatus = "partial";
+        return [];
     }
 
     private void RequireIdle()

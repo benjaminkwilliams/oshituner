@@ -21,5 +21,11 @@ WizardStyle=modern
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#AppLicense}"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 
+[Run]
+Filename: "{app}\oshituner.exe"; Parameters: "--browser-setup"; Description: "Set up Edge or Chrome integration"; Flags: postinstall skipifsilent unchecked
+
+[UninstallRun]
+Filename: "{app}\oshituner.exe"; Parameters: "--remove-browser-pairings"; Flags: runhidden; RunOnceId: "RemoveBrowserPairings"
+
 [Icons]
 Name: "{autoprograms}\Oshi Tuner"; Filename: "{app}\oshituner.exe"; WorkingDir: "{app}"

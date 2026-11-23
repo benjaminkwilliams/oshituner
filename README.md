@@ -1,6 +1,6 @@
 # Oshi Tuner
 
-A small Windows WPF app that shows which Twitch channels you follow are live.
+A Windows WPF app for tracking live Twitch channels you follow or have received gifted subscriptions for.
 
 ## Install on Windows
 
@@ -48,7 +48,11 @@ graphify update .
 
 In the app, open **Plugins > Twitch > Client ID** to enter the ID if needed, then select **Connect Twitch**. Select **Open Twitch** and approve access using the displayed code. The app requests `user:read:follows` and `user:read:subscriptions`. It remembers the Client ID and stores encrypted authorization for each install folder under your Windows user profile. The `TWITCH_CLIENT_ID` environment variable overrides the saved ID.
 
-Use **Sort** to choose group priority and a secondary sort. Use **Open on Twitch** to manage follows and subs. Twitch lets the app check sub status for followed channels. Subs outside the follow list can be missing.
+Use **Sort** to choose group priority and a secondary sort. **Refresh Now** runs immediately. **Auto Refresh** defaults to 30 minutes and also offers 5, 10, 15, and 60 minutes. **Open on Twitch** opens the selected channel. Set up [Browser Integration](docs/browser-integration.md) to discover gifted subs from an already-open Twitch Gifts tab. Verified gifts remain available for Helix rechecks with the browser closed.
+
+**Windows > Twitch Status** reopens or focuses the grid. Drag its tab to float it, or drop it on a workspace dock target to redock it. The pin keeps a docked group expanded. Each app copy remembers its pane layout.
+
+Open **Settings > Theme** to select a palette, font, opacity and workspace background. Use the built-in Vtuber 4k image, browse to a local or UNC file, or load an HTTP/HTTPS image. GIF and WebP animations play from the per-install cache. A missing or damaged cache falls back to the mode's solid background.
 
 ## Control a running copy from Codex
 

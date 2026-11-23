@@ -5,9 +5,60 @@ namespace oshituner;
 
 public partial class App : Application
 {
+    private async void RunBrowserSetup(bool remove)
+    {
+        try
+        {
+            var browserRegistration = new BrowserRegistration(new InstallProfile());
+            if (remove)
+            {
+                foreach (var target in BrowserRegistration.Targets)
+                    if (browserRegistration.Unpair(target))
+                        await BrowserDiscovery.WakeUnregisteredHostAsync(browserRegistration, target);
+                Shutdown();
+            }
+            else
+            {
+                MainWindow = new BrowserIntegrationWindow(browserRegistration, installerSetup: true);
+                MainWindow.Show();
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            if (!remove)
+                MessageBox.Show("Could not open Browser Integration setup.", "Oshi Tuner", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
+        }
+    }
+
+    private async void RunNativeHost(string origin)
+    {
+        var target = BrowserRegistration.Targets.FirstOrDefault(browser => browser.Origin == origin.TrimEnd('/') + "/");
+        try
+        {
+            Shutdown(target is null ? 1 : await BrowserDiscovery.RunNativeHostAsync(new BrowserRegistration(new InstallProfile()), target));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            Shutdown(1);
+        }
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (e.Args is ["--browser-setup"] or ["--remove-browser-pairings"])
+        {
+            RunBrowserSetup(e.Args[0] == "--remove-browser-pairings");
+            return;
+        }
+
+        if (e.Args.FirstOrDefault() is { } first && first.StartsWith("chrome-extension://", StringComparison.Ordinal))
+        {
+            RunNativeHost(first);
+            return;
+        }
+
         try
         {
             MainWindow = new MainWindow();

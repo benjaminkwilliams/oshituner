@@ -14,7 +14,13 @@ Client-Id: {registered-client-id}
 
 The endpoint returns live broadcasts for the authenticated user's follows, ordered by viewer count. It requires a **user access token** with the `user:read:follows` scope. The `user_id` query value must match the user ID in that token. The app obtains this ID from Twitch's token validation response and follows pagination cursors until all results are read. Twitch limits this endpoint to streams from the first 2,000 channels the user followed.
 
-The app matches live streams to followed channels by broadcaster ID. The channel grid shows all fetched follows in the configured sort order. The app checks sub status for followed channels with the user:read:subscriptions scope. Confirmed subs are gold and show Tier1, Tier2, or Tier3 when Twitch returns the tier. Otherwise they show Subbed. Sub-only channels can be missing, and unavailable checks show Unknown. Channels beyond Twitch's live-status limit can show **Unknown**.
+The app matches live streams to followed channels by broadcaster ID. The channel grid shows all fetched follows in the configured sort order. The app checks sub status for followed channels with the user:read:subscriptions scope. Confirmed subs are gold and show Tier1, Tier2, or Tier3 when Twitch returns the tier. Otherwise they show Subbed. Unavailable checks show Unknown. Channels beyond Twitch's live-status limit can show **Unknown**.
+
+## Discover gifted subscriptions
+
+The paired browser can supply channel logins from an already-open Twitch Gifted Subscriptions tab. Startup restoration, **Refresh Now**, and scheduled refresh all use the same discovery path. The browser never needs to change tabs or take focus. App-side Helix calls resolve the logins, verify whether each channel gave the signed-in user an active gift, and look up the stream status. After verification, Oshi Tuner remembers the broadcaster ID for that Twitch account and can recheck it with the browser closed. A confirmed ended gift drops an unfollowed channel from the grid.
+
+The public viewer sub check requires a broadcaster ID. Oshi Tuner uses its own Twitch OAuth token for every Helix call. See [Browser Integration](browser-integration.md) for setup. **Auto Refresh** offers 5, 10, 15, 30, and 60 minutes and defaults to 30.
 
 ## Authorization and token handling
 

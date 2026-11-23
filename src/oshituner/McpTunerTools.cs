@@ -51,6 +51,83 @@ internal sealed class McpTunerTools
         string channelId, string provider = "twitch") =>
         control.ChangeAsync(() => control.OpenChannel(provider, channelId), cancellationToken);
 
+    [McpServerTool(Name = "get_browser_pairings"), Description("Read Edge and Chrome pairing status for this installation.")]
+    public static Task<BrowserPairing[]> GetBrowserPairings(TunerControl control, CancellationToken cancellationToken) =>
+        control.OnUiAsync(control.GetBrowserPairings, cancellationToken);
+
+    [McpServerTool(Name = "set_browser_pairing"), Description("Pair or unpair Edge or Chrome. Pass replace only with the user's approval to move an existing pairing.")]
+    public static Task<BrowserPairing[]> SetBrowserPairing(TunerControl control, CancellationToken cancellationToken,
+        string browser, bool paired, bool replace = false) =>
+        control.OnUiAsync(() => control.SetBrowserPairing(browser, paired, replace), cancellationToken);
+
+    [McpServerTool(Name = "open_browser_integration"), Description("Open Browser Integration settings.")]
+    public static Task<TunerState> OpenBrowserIntegration(TunerControl control, CancellationToken cancellationToken) =>
+        control.ChangeAsync(control.OpenBrowserIntegration, cancellationToken);
+
+    [McpServerTool(Name = "close_browser_integration"), Description("Close Browser Integration settings.")]
+    public static Task<TunerState> CloseBrowserIntegration(TunerControl control, CancellationToken cancellationToken) =>
+        control.ChangeAsync(control.CloseBrowserIntegration, cancellationToken);
+
+    [McpServerTool(Name = "get_theme"), Description("Read the theme of this installation.")]
+    public static Task<ThemeSettings> GetTheme(TunerControl control, CancellationToken cancellationToken) =>
+        control.OnUiAsync(control.GetTheme, cancellationToken);
+
+    [McpServerTool(Name = "set_theme"), Description("Apply and save theme settings for this installation.")]
+    public static Task<ThemeSettings> SetTheme(TunerControl control, CancellationToken cancellationToken, ThemeSettings theme) =>
+        control.OnUiAsync(() => control.SetTheme(theme), cancellationToken);
+
+    [McpServerTool(Name = "reset_theme"), Description("Restore this installation's default theme.")]
+    public static Task<ThemeSettings> ResetTheme(TunerControl control, CancellationToken cancellationToken) =>
+        control.OnUiAsync(control.ResetTheme, cancellationToken);
+
+    [McpServerTool(Name = "open_theme"), Description("Open or focus the Theme window.")]
+    public static Task<TunerState> OpenTheme(TunerControl control, CancellationToken cancellationToken) =>
+        control.ChangeAsync(control.OpenTheme, cancellationToken);
+
+    [McpServerTool(Name = "close_theme"), Description("Close the Theme window and discard uncommitted edits.")]
+    public static Task<TunerState> CloseTheme(TunerControl control, CancellationToken cancellationToken) =>
+        control.ChangeAsync(control.CloseTheme, cancellationToken);
+
+    [McpServerTool(Name = "import_theme_image"), Description("Cache a local path, UNC path, or HTTP/HTTPS background image and return its asset ID.")]
+    public static Task<string> ImportThemeImage(TunerControl control, CancellationToken cancellationToken, string source) =>
+        control.ImportThemeImageAsync(source, cancellationToken);
+
+    [McpServerTool(Name = "get_workspace"), Description("Read current docked and floating pane layout.")]
+    public static Task<WorkspaceState> GetWorkspace(TunerControl control, CancellationToken cancellationToken) =>
+        control.OnUiAsync(control.GetWorkspace, cancellationToken);
+
+    [McpServerTool(Name = "open_pane"), Description("Open or focus a pane. The Twitch pane ID is twitch-status.")]
+    public static Task<WorkspaceState> OpenPane(TunerControl control, CancellationToken cancellationToken, string id) =>
+        control.OnUiAsync(() => { control.OpenPane(id); return control.GetWorkspace(); }, cancellationToken);
+
+    [McpServerTool(Name = "close_pane"), Description("Close the requested status pane.")]
+    public static Task<WorkspaceState> ClosePane(TunerControl control, CancellationToken cancellationToken, string id) =>
+        control.OnUiAsync(() => { control.ClosePane(id); return control.GetWorkspace(); }, cancellationToken);
+
+    [McpServerTool(Name = "move_pane"), Description("Move a pane to Center, Top, Bottom, Left or Right. Omit dock to float it.")]
+    public static Task<WorkspaceState> MovePane(TunerControl control, CancellationToken cancellationToken, string id, DockLocation? dock = null) =>
+        control.OnUiAsync(() => { control.MovePane(id, dock); return control.GetWorkspace(); }, cancellationToken);
+
+    [McpServerTool(Name = "join_floating_group"), Description("Move a pane into the floating group containing a peer pane.")]
+    public static Task<WorkspaceState> JoinFloatingGroup(TunerControl control, CancellationToken cancellationToken, string id, string peerId) =>
+        control.OnUiAsync(() => { control.JoinFloatingGroup(id, peerId); return control.GetWorkspace(); }, cancellationToken);
+
+    [McpServerTool(Name = "redock_floating_group"), Description("Redock every pane in the floating group containing the chosen pane.")]
+    public static Task<WorkspaceState> RedockFloatingGroup(TunerControl control, CancellationToken cancellationToken, string id, DockLocation dock) =>
+        control.OnUiAsync(() => { control.RedockFloatingGroup(id, dock); return control.GetWorkspace(); }, cancellationToken);
+
+    [McpServerTool(Name = "pin_pane"), Description("Pin or unpin the docked group containing the pane.")]
+    public static Task<WorkspaceState> PinPane(TunerControl control, CancellationToken cancellationToken, string id, bool pinned) =>
+        control.OnUiAsync(() => { control.PinPane(id, pinned); return control.GetWorkspace(); }, cancellationToken);
+
+    [McpServerTool(Name = "get_auto_refresh"), Description("Read the Twitch auto refresh interval in minutes.")]
+    public static Task<int> GetAutoRefresh(TunerControl control, CancellationToken cancellationToken) =>
+        control.OnUiAsync(control.GetAutoRefresh, cancellationToken);
+
+    [McpServerTool(Name = "set_auto_refresh"), Description("Set Twitch auto refresh to 5, 10, 15, 30 or 60 minutes.")]
+    public static Task<int> SetAutoRefresh(TunerControl control, CancellationToken cancellationToken, int minutes) =>
+        control.OnUiAsync(() => { control.SetAutoRefresh(minutes); return control.GetAutoRefresh(); }, cancellationToken);
+
     [McpServerTool(Name = "get_sort"), Description("Read the current priority groups and secondary sort.")]
     public static Task<GridSort> GetSort(TunerControl control, CancellationToken cancellationToken) =>
         control.OnUiAsync(control.GetSort, cancellationToken);
@@ -74,7 +151,7 @@ internal sealed class McpTunerTools
     public static Task<TunerState> CloseAbout(TunerControl control, CancellationToken cancellationToken) =>
         control.ChangeAsync(control.CloseAbout, cancellationToken);
 
-    [McpServerTool(Name = "open_about_link"), Description("Open one About link. Values are repository, donations, license, or mcp_license.")]
+    [McpServerTool(Name = "open_about_link"), Description("Open one About link. Values are repository, donations, license, mcp_license, or image_decoder_license.")]
     public static Task<TunerState> OpenAboutLink(TunerControl control, CancellationToken cancellationToken, string link) =>
         control.ChangeAsync(() => control.OpenAboutLink(link), cancellationToken);
 }
