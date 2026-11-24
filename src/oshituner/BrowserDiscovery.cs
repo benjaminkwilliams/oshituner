@@ -64,7 +64,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         CancellationToken token) => await QueryAsync(BrowserRegistration.GetTarget(browser), "oshi_mutate",
             login, token, mutation) is { Status: "complete" };
 
-    public async Task OpenWatchChannelAsync(string browser, string login, OshiChannelKey channel, int cap,
+    public async Task<bool> OpenWatchChannelAsync(string browser, string login, OshiChannelKey channel, int cap,
         bool existingOnly, CancellationToken cancellationToken)
     {
         if (!TwitchLogin().IsMatch(login)) throw new ArgumentException("Invalid Twitch channel login.");
@@ -86,7 +86,26 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
             }
         }
 
-        if (reply is { Status: "complete" }) return;
+        if (reply is { Status: "complete", Reason: "existing_unmanaged" }) return false;
+        if (reply is { Status: "complete" })
+        {
+            using var confirmation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            confirmation.CancelAfter(TimeSpan.FromSeconds(5));
+            try
+            {
+                while (true)
+                {
+                    var snapshot = await GetOshiTabsAsync(target, confirmation.Token);
+                    if (snapshot.Tabs.Any(tab => tab.Channel == channel &&
+                        string.Equals(tab.Login, login, StringComparison.OrdinalIgnoreCase))) return true;
+                    await Task.Delay(250, confirmation.Token);
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new InvalidOperationException($"{target.DisplayName} did not confirm a managed tab. If the stream is open in its own window, choose Manage open stream from Twitch Status.");
+            }
+        }
         throw new InvalidOperationException(reply?.Reason switch
         {
             "capacity" => $"{target.DisplayName} has reached the Oshi tab limit of {cap}. Close a managed stream or change the limit.",
@@ -161,7 +180,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         try
         {
             using var pipe = await PipeRendezvous.ConnectAsync(registration.Profile, BrowserRegistration.BrowserRole(target),
-                250, timeout.Token).ConfigureAwait(false);
+                500, timeout.Token).ConfigureAwait(false);
             if (pipe is null) return null;
             var id = Guid.NewGuid().ToString("N");
             var scope = method.StartsWith("oshi_", StringComparison.Ordinal) ? registration.InstallKey : null;

@@ -141,14 +141,16 @@ internal sealed class TunerControl(
         log.Write("Watch", $"{target.DisplayName}: {operation} requested for {login}.");
         try
         {
-            await session.WatchChannelAsync(channelId, browser, token, existingOnly);
+            var managed = await session.WatchChannelAsync(channelId, browser, token, existingOnly);
             if (!existingOnly) oshi.RearmBrowser(browser);
             await oshi.ObserveWhilePausedAsync(token);
-            log.Write("Watch", $"{target.DisplayName}: {operation} for {login} confirmed.");
+            var outcome = managed ? "managed tab confirmed" : "existing manual tab focused. Use Manage open stream to assign it";
+            log.Write("Watch", $"{target.DisplayName}: {operation} for {login}: {outcome}.");
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or System.IO.IOException or UnauthorizedAccessException)
         {
-            log.Write("Watch", $"{target.DisplayName}: {operation} for {login} failed ({exception.GetType().Name}).");
+            var detail = exception is InvalidOperationException ? exception.Message : exception.GetType().Name;
+            log.Write("Watch", $"{target.DisplayName}: {operation} for {login} failed. {detail}");
             throw;
         }
     }

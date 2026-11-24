@@ -4,8 +4,11 @@ const hosts = {
 };
 const host = hosts[chrome.runtime.id];
 let connection;
+let reconnectTimer;
+let reconnectDelay = 1000;
 let tabChange;
 let lastWatchSignature;
+const startupProofs = new Map();
 const channelLoginPattern = /^[a-z0-9_]{1,25}$/i;
 const nonChannelRoutes = new Set(["activate", "bits", "browse", "checkout", "creatorcamp", "dashboard",
   "directory", "downloads", "drops", "friends", "inventory", "login", "messages", "p", "popout",
@@ -20,9 +23,21 @@ function channelLogin(tab) {
   return login && !nonChannelRoutes.has(login) ? login : undefined;
 }
 
+function rememberStartupProof(tab) {
+  if (!Number.isInteger(tab.id)) return;
+  const login = channelLogin(tab);
+  const address = tab.pendingUrl ?? tab.url;
+  const proof = login && /#oshi-start=([a-f0-9]{32})$/.exec(address)?.[1];
+  if (proof) {
+    startupProofs.set(tab.id, { login, proof, expires: Date.now() + 60_000 });
+    if (startupProofs.size > 50) startupProofs.delete(startupProofs.keys().next().value);
+  } else if (startupProofs.get(tab.id)?.login !== login) startupProofs.delete(tab.id);
+}
+
 async function channelTabs() {
   const tabs = await chrome.tabs.query({ url: "https://www.twitch.tv/*" });
   return tabs.flatMap((tab) => {
+    rememberStartupProof(tab);
     const login = channelLogin(tab);
     return login ? [{ tab, login }] : [];
   });
@@ -66,6 +81,13 @@ const managedTabKey = "oshiManagedTabs";
 const identifier = /^[a-f0-9]{32}$/;
 const maxManagedTabs = 50;
 let managedCommands = Promise.resolve();
+let managedRevision = 0;
+
+async function saveManagedTabs(stored) {
+  await chrome.storage.session.set({ [managedTabKey]: stored });
+  ++managedRevision;
+  scheduleTabChange();
+}
 const recoveryEvents = [];
 let recoveryRevision = 0;
 chrome.runtime.onMessage?.addListener((message, sender) => {
@@ -122,9 +144,12 @@ async function managedCommand(request) {
 
   if (tabs.some(tab => tab.revision === assignment))
     return { status: "complete", logins: [] };
-  const matchStartup = url => url?.endsWith("#oshi-start=" + assignment);
+  const matchStartup = tab => {
+    const proof = startupProofs.get(tab.id);
+    return proof?.login === login && proof.proof === assignment && proof.expires > Date.now();
+  };
   const existing = channels.filter(candidate => candidate.login === login &&
-    (action !== "adopt_startup" || matchStartup(candidate.tab.pendingUrl ?? candidate.tab.url)));
+    (action !== "adopt_startup" || matchStartup(candidate.tab)));
   if ((action === "open" || action === "switch") && existing.length)
     return { status: "partial", logins: [] };
 
@@ -146,7 +171,7 @@ async function managedCommand(request) {
       const { tab } = existing[0];
       await chrome.tabs.update(tab.id, { active: true });
       await chrome.windows.update(tab.windowId, { focused: true });
-      return { status: "complete", logins: [] };
+      return { status: "complete", logins: [], reason: "existing_unmanaged" };
     }
     // Count in-flight opens even before Chromium exposes their new Twitch URLs.
     if (tabs.length + pending >= cap) return reject("capacity");
@@ -158,11 +183,10 @@ async function managedCommand(request) {
         return reject("shared_window");
       const current = await chrome.tabs.get(tab.id);
       if (channelLogin(current) !== login || channelLogin({ url: current.url }) !== login ||
-          (action === "adopt_startup" && !matchStartup(current.url))) return reject("missing");
+          (action === "adopt_startup" && !matchStartup(current))) return reject("missing");
       stored[tab.id] = { scope: request.scope, login, revision: assignment, channel };
-      await chrome.storage.session.set({ [managedTabKey]: stored });
+      await saveManagedTabs(stored);
       await chrome.tabs.update(tab.id, { active: true });
-      scheduleTabChange();
       return { status: "complete", logins: [] };
     }
 
@@ -187,8 +211,7 @@ async function managedCommand(request) {
       stored[tabId] = { scope: request.scope, login, revision: assignment, channel };
     }
   }
-  await chrome.storage.session.set({ [managedTabKey]: stored });
-  scheduleTabChange();
+  await saveManagedTabs(stored);
   return { status: "complete", logins: [] };
 }
 
@@ -203,9 +226,14 @@ function releaseManaged(tabId, url, removed = false) {
     const { [managedTabKey]: stored = {} } = await chrome.storage.session.get(managedTabKey);
     const mark = stored[tabId];
     if (!mark || (url && channelLogin({ url }) === mark.login)) return;
-    if (!removed && mark.pendingUntil > Date.now() && (!url || url === "about:blank")) return;
+    if (!removed) {
+      const current = await chrome.tabs.get(tabId);
+      if (channelLogin(current) === mark.login) return;
+      const address = current.pendingUrl ?? current.url;
+      if (mark.pendingUntil > Date.now() && (!address || address === "about:blank")) return;
+    }
     delete stored[tabId];
-    await chrome.storage.session.set({ [managedTabKey]: stored });
+    await saveManagedTabs(stored);
   }).catch(() => {});
 }
 
@@ -217,7 +245,7 @@ function scheduleTabChange() {
     try {
       const tabs = await readWatchTabs();
       const signature = JSON.stringify([tabs.logins, tabs.activeLogins.sort(),
-        (await chrome.windows.getAll({ windowTypes: ["normal"] })).length, recoveryRevision]);
+        (await chrome.windows.getAll({ windowTypes: ["normal"] })).length, recoveryRevision, managedRevision]);
       if (connection !== port || signature === lastWatchSignature) return;
       port.postMessage({ event: "watch_changed", managed: true });
       lastWatchSignature = signature;
@@ -228,28 +256,40 @@ function scheduleTabChange() {
 }
 
 chrome.tabs.onUpdated.addListener((id, change, tab) => {
-  if (change.url || change.status === "complete") releaseManaged(id, change.url ?? tab.url);
+  if (change.url || change.status === "complete") {
+    rememberStartupProof(tab);
+    releaseManaged(id, change.url ?? tab.url);
+  }
   // Navigation away can omit the new URL when it leaves the permitted host.
   if (change.url || change.status === "complete" || tab.url?.startsWith("https://www.twitch.tv/")) scheduleTabChange();
 });
 chrome.tabs.onCreated.addListener(scheduleTabChange);
-chrome.tabs.onRemoved.addListener(id => { releaseManaged(id, undefined, true); scheduleTabChange(); });
-chrome.tabs.onReplaced.addListener((_, oldId) => { releaseManaged(oldId, undefined, true); scheduleTabChange(); });
+chrome.tabs.onRemoved.addListener(id => { startupProofs.delete(id); releaseManaged(id, undefined, true); scheduleTabChange(); });
+chrome.tabs.onReplaced.addListener((_, oldId) => { startupProofs.delete(oldId); releaseManaged(oldId, undefined, true); scheduleTabChange(); });
 chrome.tabs.onActivated.addListener(scheduleTabChange);
+
+function reconnect(port) {
+  if (connection !== port) return;
+  connection = undefined;
+  reconnectTimer = setTimeout(connect, reconnectDelay);
+  reconnectDelay = Math.min(reconnectDelay * 2, 15_000);
+}
 
 function connect() {
   if (!host || connection) return;
+  clearTimeout(reconnectTimer);
   const port = chrome.runtime.connectNative(host);
   connection = port;
   lastWatchSignature = undefined;
   port.onDisconnect.addListener(() => {
     // Reading lastError suppresses a warning when the app isn't paired yet.
     void chrome.runtime.lastError;
-    if (connection === port) connection = undefined;
+    reconnect(port);
   });
   port.onMessage.addListener(async (request) => {
     if (request?.version !== 1 || !["gift_channels", "watch_channels", "open_watch_channel", "oshi_tabs", "oshi_mutate"].includes(request.method) ||
         typeof request.id !== "string" || !/^[a-f0-9]{32}$/.test(request.id)) return;
+    reconnectDelay = 1000;
     let result;
     try {
       if (request.method === "gift_channels") result = await readGiftTabs();
@@ -274,7 +314,7 @@ function sendWakeHeartbeat() {
     port.postMessage({ event: "watch_changed", managed: true, wake: true });
   } catch {
     // A browser shutdown can disconnect between the alarm and postMessage.
-    if (connection === port) connection = undefined;
+    reconnect(port);
   }
 }
 

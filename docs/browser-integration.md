@@ -16,6 +16,8 @@ The optional installer setup can pair an unpaired browser. Setup can also add an
 
 The WATCH column shows **Watching** for a live channel with an open Twitch channel tab in either paired browser. Watching rows sort first. The browser icons appear on live rows without an open tab. Tab changes update the grid independently of Twitch auto-refresh. A selected Twitch channel can add a temporary row, which stays until the last tab for that channel closes. Choose an available Edge or Chrome icon to open a live channel in its own managed window. The per-browser limit counts managed tabs across every window in that browser, including tabs opened from Twitch Status. Oshi switches ranked streams in the same managed tab and window. To manage an existing stream, put it in a window with one Twitch channel tab, then right-click its Twitch Status row and choose **Manage open stream** for the paired browser.
 
+**Windows > Log** records channel changes and managed tab assignments or releases, including while Oshi Watch is paused. A channel can show **Watching** when its tab is open in the browser. **Manage open stream** explicitly gives Oshi control of an existing tab.
+
 Reload the unpacked extension after updating the application. The bridge only reads Twitch channel tabs in the browser profile running the extension. Check **Help > About** for the version actually loaded in each browser.
 
 ## Twitch player recovery

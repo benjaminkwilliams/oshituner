@@ -43,7 +43,8 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                 var previous = _runs[browser];
                 _runs[browser] = new(browser, previous.Deferred)
                 {
-                    State = previous.State
+                    State = previous.State,
+                    LastObserved = previous.LastObserved
                 };
             }
             _statusSettings = null;
@@ -92,6 +93,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
             {
                 var run = RunFor(browser.Browser);
                 ObserveBrowserLifecycle(browser, run);
+                if (browser.Status == "ready") run.Observe(browser, _live, Now);
                 run.State = new(browser.Browser, browser.Status, "Paused", null, browser.Tabs);
             }
             Changed?.Invoke();
@@ -132,9 +134,34 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
             if (browser.WindowCount == 0 && run.WindowCount > 0) SuspendBrowser(browser.Browser, run, "last window closed");
             run.WindowCount = browser.WindowCount;
             run.HadBrowserContact = true;
+            run.ContactMisses = 0;
+            LogBrowserChanges(browser, run);
         }
-        else if (run.HadBrowserContact && run.Startup is null)
+        else if (run.HadBrowserContact && run.Startup is null && ++run.ContactMisses == 2)
             SuspendBrowser(browser.Browser, run, "browser contact lost");
+    }
+
+    private void LogBrowserChanges(OshiBrowserSnapshot browser, BrowserRun run)
+    {
+        var previous = run.LastObserved;
+        run.LastObserved = browser;
+        if (previous is null)
+        {
+            log.Write("Browser", $"{browser.Browser}: extension connected. {browser.Logins.Length} Twitch channels open, {browser.Tabs.Length} managed tabs.");
+            return;
+        }
+
+        static string Sample(IEnumerable<string> names) => string.Join(", ", names.Order(StringComparer.OrdinalIgnoreCase).Take(8));
+        var opened = Sample(browser.Logins.Except(previous.Logins, StringComparer.OrdinalIgnoreCase));
+        var left = Sample(previous.Logins.Except(browser.Logins, StringComparer.OrdinalIgnoreCase));
+        if (opened.Length > 0 || left.Length > 0)
+            log.Write("Browser", $"{browser.Browser}: Twitch tabs changed." +
+                (left.Length == 0 ? "" : $" Left {left}.") + (opened.Length == 0 ? "" : $" Opened {opened}."));
+        var assigned = Sample(browser.Tabs.Except(previous.Tabs).Select(tab => tab.Login));
+        var released = Sample(previous.Tabs.Except(browser.Tabs).Select(tab => tab.Login));
+        if (assigned.Length > 0 || released.Length > 0)
+            log.Write("Browser", $"{browser.Browser}: managed tabs changed." +
+                (released.Length == 0 ? "" : $" Released {released}.") + (assigned.Length == 0 ? "" : $" Assigned {assigned}."));
     }
 
     private void SuspendBrowser(string browser, BrowserRun run, string reason)
@@ -225,7 +252,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                 }
                 var watchingElsewhere = browsers.Where(other => other.Browser != browser.Browser)
                     .SelectMany(other => other.Logins).Concat(reserved).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                var mayStartBrowser = browser.Status == "browser unavailable";
+                var mayStartBrowser = browser.Status == "browser unavailable" && !run.HadBrowserContact;
                 var planningBrowser = mayStartBrowser ? browser with { Status = "ready" } : browser;
                 var decision = OshiPlanner.Plan(settings, planningBrowser, _live, run.Turns, run.Served, run.Deferred,
                     run.FallbackSince, now, watchingElsewhere);
@@ -326,6 +353,8 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         public StartupStream? Startup { get; set; }
         public bool LaunchSuspended { get; set; }
         public bool HadBrowserContact { get; set; }
+        public int ContactMisses { get; set; }
+        public OshiBrowserSnapshot? LastObserved { get; set; }
         public int? WindowCount { get; set; }
         public string? LastStatusSummary { get; set; }
         public string? LastFailedAction { get; set; }
