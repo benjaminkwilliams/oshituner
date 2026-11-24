@@ -17,6 +17,9 @@ internal sealed partial class TunerSession
     private bool _edgeAvailable;
     private bool _chromeAvailable;
 
+    public string[] LiveWatchedTwitchLogins() => Channels.Where(row => row.Provider == "twitch" && row.IsLive &&
+        _watchLogins.Contains(row.Login)).Select(row => row.Login).Distinct(StringComparer.OrdinalIgnoreCase).Take(500).ToArray();
+
     public Task ObserveWatchChangesAsync(Action changed, Action<string> diagnostic, CancellationToken token) =>
         _browserDiscovery.ObserveWatchChangesAsync(changed, diagnostic, token);
 
@@ -83,8 +86,8 @@ internal sealed partial class TunerSession
     {
         var rowsByLogin = _rows.Concat(_watchOnlyRows.Values).DistinctBy(row => row.Login, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(row => row.Login, StringComparer.OrdinalIgnoreCase);
-        // A selected tab can add a channel. Background tabs still count for channels already in the grid.
-        var missing = activeLogins.Where(login => !rowsByLogin.ContainsKey(login) && !_unresolvedWatchLogins.Contains(login)).ToArray();
+        // A live stream can occupy a managed slot even in a background tab.
+        var missing = activeLogins.Concat(newLogins).Distinct(StringComparer.OrdinalIgnoreCase).Where(login => !rowsByLogin.ContainsKey(login) && !_unresolvedWatchLogins.Contains(login)).ToArray();
         var existing = newLogins.Where(rowsByLogin.ContainsKey).Select(login => rowsByLogin[login]).ToArray();
         if (missing.Length == 0 && existing.Length == 0) return;
 

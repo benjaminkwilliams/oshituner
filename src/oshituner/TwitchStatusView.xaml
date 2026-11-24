@@ -94,7 +94,7 @@
                         <ContextMenu Opened="ChannelMenu_Opened">
                             <MenuItem Header="Copy Twitch login" Click="CopyLogin_Click" />
                             <MenuItem x:Name="AddOshiMenu" Header="Add to Oshi" />
-                            <MenuItem x:Name="ManageStreamMenu" Header="Manage open stream">
+                            <MenuItem x:Name="ManageStreamMenu" Header="Manage live Twitch stream">
                                 <MenuItem Header="Microsoft Edge" Tag="edge" Click="ManageStream_Click" />
                                 <MenuItem Header="Google Chrome" Tag="chrome" Click="ManageStream_Click" />
                             </MenuItem>

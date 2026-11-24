@@ -16,7 +16,7 @@ Manage the saved Client ID choice under **Plugins > Twitch > Client ID**. Each i
 - **Windows > Twitch Status** opens the grid of followed channels and verified gifted subs. It shows live status, available subscription tiers, and saved Oshi ranks.
 - Choose **Refresh > Now** for an immediate update or select 5, 10, 15, 30, or 60 minutes for automatic refresh. The default is 30 minutes. **Sort…** sets the default group order. Right-click a column heading to find, filter, or sort that column.
 - **Watching** means a live channel has an open tab in either paired browser. Tab changes appear independently of the Twitch refresh timer. A selected Twitch tab can add a temporary row for a channel you don't follow.
-- Select a browser icon in the **Watch** column to open a live stream in its own managed window. To bring an existing stream under Oshi's control, move it into its own window, right-click the row, and choose **Manage open stream** and the browser.
+- Select a browser icon in the **Watch** column to open a live stream in its own managed window. Oshi registers live Twitch streams already open in eligible paired browser windows when a slot is free. To choose a stream explicitly, right-click its row and select **Manage live Twitch stream** and the browser.
 - To discover unfollowed gifted subs, leave Twitch's **Gifted Subscriptions** tab open in a paired browser. Once verified, the app can recheck those gifts with the browser closed.
 
 ## Oshi Watch

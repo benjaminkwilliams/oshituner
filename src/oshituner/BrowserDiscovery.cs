@@ -40,12 +40,13 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
                 : new BrowserWatchSnapshot(target.Id, registration.IsPairedHere(target), [], []);
         }));
 
-    public Task<OshiBrowserSnapshot[]> GetOshiTabsAsync(CancellationToken token) =>
-        Task.WhenAll(BrowserRegistration.Targets.Select(target => GetOshiTabsAsync(target, token)));
+    public Task<OshiBrowserSnapshot[]> GetOshiTabsAsync(CancellationToken token, OshiSettings? settings = null, string[]? liveLogins = null) =>
+        Task.WhenAll(BrowserRegistration.Targets.Select(target => GetOshiTabsAsync(target, token,
+            settings is not null && liveLogins is { Length: > 0 } ? new(settings.CapFor(target.Id), liveLogins) : null)));
 
-    public async Task<OshiBrowserSnapshot> GetOshiTabsAsync(BrowserTarget target, CancellationToken token)
+    public async Task<OshiBrowserSnapshot> GetOshiTabsAsync(BrowserTarget target, CancellationToken token, BrowserLiveRegistration? liveRegistration = null)
     {
-        var reply = await QueryAsync(target, "oshi_tabs", null, token);
+        var reply = await QueryAsync(target, "oshi_tabs", null, token, liveRegistration: liveRegistration);
         var recoveries = reply?.RecoveryEvents is { Length: <= 40 } events
             ? events.Where(item => item is not null && Guid.TryParseExact(item.Id, "N", out _) &&
                 item.Phase is "attempted" or "recovered" or "unconfirmed" &&
@@ -105,7 +106,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                throw new InvalidOperationException($"{target.DisplayName} did not confirm a managed tab. If the stream is open in its own window, choose Manage open stream from Twitch Status.");
+                throw new InvalidOperationException($"{target.DisplayName} did not confirm a managed tab. If the stream is open in its own window, choose Manage live Twitch stream from Twitch Status.");
             }
         }
         throw new InvalidOperationException(reply?.Reason switch
@@ -172,7 +173,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
     }
 
     private async Task<BrowserReply?> QueryAsync(BrowserTarget target, string method, string? login, CancellationToken cancellationToken,
-        OshiBrowserMutation? mutation = null)
+        OshiBrowserMutation? mutation = null, BrowserLiveRegistration? liveRegistration = null)
     {
         if (!registration.IsPairedHere(target)) return null;
         var gate = _requests[target.Id];
@@ -186,7 +187,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
             if (pipe is null) return null;
             var id = Guid.NewGuid().ToString("N");
             var scope = method.StartsWith("oshi_", StringComparison.Ordinal) ? registration.InstallKey : null;
-            await WriteFrameAsync(pipe, new { version = Version, id, method, login, scope, mutation }, timeout.Token).ConfigureAwait(false);
+            await WriteFrameAsync(pipe, new { version = Version, id, method, login, scope, mutation, liveRegistration }, timeout.Token).ConfigureAwait(false);
             var frame = await ReadFrameAsync(pipe, timeout.Token).ConfigureAwait(false);
             if (frame is null) return null;
             var reply = JsonSerializer.Deserialize<BrowserReply>(frame, Json);
@@ -416,6 +417,7 @@ internal sealed record OshiBrowserSnapshot(string Browser, string Status, string
 {
     public int ReservedSlots => ReservedTabIds?.Length ?? 0;
 }
+internal sealed record BrowserLiveRegistration(int Cap, string[] Logins);
 internal sealed record BrowserRecoveryEvent(string Id, string Phase, string Login);
 internal sealed record OshiBrowserMutation(string Action, string Assignment, int? TabId = null, string? Revision = null,
     string? ExpectedLogin = null, OshiChannelKey? Channel = null, int? TabCap = null, bool FocusOnOpen = false);

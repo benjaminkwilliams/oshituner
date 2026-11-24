@@ -288,8 +288,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            await _oshi.ObserveWhilePausedAsync(_lifetime.Token);
             await _session.SyncWatchTabsAsync(_lifetime.Token);
+            await _oshi.ObserveWhilePausedAsync(_lifetime.Token);
             SetNotice("Browser tabs", NoticeSeverity.None, "");
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }

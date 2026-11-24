@@ -137,14 +137,14 @@ internal sealed class TunerControl(
     {
         var target = BrowserRegistration.GetTarget(browser);
         var login = session.Channels.FirstOrDefault(channel => channel.ChannelId == channelId)?.Login ?? "unknown channel";
-        var operation = existingOnly ? "Manage open stream" : "Watch";
+        var operation = existingOnly ? "Manage live Twitch stream" : "Watch";
         log.Write("Watch", $"{target.DisplayName}: {operation} requested for {login}.");
         try
         {
             var managed = await session.WatchChannelAsync(channelId, browser, token, existingOnly);
             if (!existingOnly) oshi.RearmBrowser(browser);
             await oshi.ObserveWhilePausedAsync(token);
-            var outcome = managed ? "managed tab confirmed" : "existing manual tab focused. Use Manage open stream to assign it";
+            var outcome = managed ? "managed tab confirmed" : "existing manual tab focused. Use Manage live Twitch stream to assign it";
             log.Write("Watch", $"{target.DisplayName}: {operation} for {login}: {outcome}.");
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or System.IO.IOException or UnauthorizedAccessException)

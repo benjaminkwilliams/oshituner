@@ -87,7 +87,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         _observing = true;
         try
         {
-            var browsers = await discovery.GetOshiTabsAsync(token);
+            var browsers = await ReadBrowserTabsAsync(token);
             if (_run is not null || token.IsCancellationRequested) return;
             foreach (var browser in browsers)
             {
@@ -99,6 +99,13 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
             Changed?.Invoke();
         }
         finally { _observing = false; }
+    }
+
+    private Task<OshiBrowserSnapshot[]> ReadBrowserTabsAsync(CancellationToken token)
+    {
+        if (session.UserId is null) return discovery.GetOshiTabsAsync(token);
+        var liveLogins = session.LiveWatchedTwitchLogins();
+        return discovery.GetOshiTabsAsync(token, session.Oshi, liveLogins);
     }
 
     private void ObserveBrowserLifecycle(OshiBrowserSnapshot browser, BrowserRun run)
@@ -213,7 +220,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
             if (!Equals(settings, session.Oshi)) return;
             if (session.UserId is null) _live = _live.Where(channel => channel.Channel.Provider != "twitch").ToArray();
             if (account != session.UserId) return;
-            var browsers = await discovery.GetOshiTabsAsync(token);
+            var browsers = await ReadBrowserTabsAsync(token);
             token.ThrowIfCancellationRequested();
             if (account != session.UserId) return;
             now = Now;

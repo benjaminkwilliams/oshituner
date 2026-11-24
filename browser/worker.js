@@ -149,6 +149,34 @@ async function readManagedTabs(scope, channels) {
   return { stored, tabs, pending };
 }
 
+async function registerLiveTabs(scope, registration, channels, windows, stored, tabs, pending) {
+  if (!Number.isInteger(registration?.cap) || registration.cap <= 0 || registration.cap > maxManagedTabs ||
+      !Array.isArray(registration.logins) || registration.logins.length > 500) return;
+  const live = new Set(registration.logins);
+  const normalWindows = new Set(windows.map(window => window.id));
+  const windowCounts = new Map();
+  const loginCounts = new Map();
+  for (const { tab, login } of channels) {
+    windowCounts.set(tab.windowId, (windowCounts.get(tab.windowId) ?? 0) + 1);
+    loginCounts.set(login, (loginCounts.get(login) ?? 0) + 1);
+  }
+
+  const assigned = [];
+  for (const { tab, login } of channels) {
+    if (tabs.length + pending.length + assigned.length >= registration.cap) break;
+    if (!live.has(login) || !Number.isInteger(tab.id) || stored[tab.id] || !normalWindows.has(tab.windowId) ||
+        windowCounts.get(tab.windowId) !== 1 || loginCounts.get(login) !== 1 ||
+        channelLogin({ url: tab.url }) !== login) continue;
+    const revision = crypto.randomUUID().replaceAll("-", "");
+    stored[tab.id] = { scope, login, revision };
+    assigned.push({ tabId: tab.id, login, revision });
+  }
+  if (assigned.length) {
+    await saveManagedTabs(stored);
+    tabs.push(...assigned);
+  }
+}
+
 async function managedCommand(request) {
   if (!/^[a-f0-9]{64}$/.test(request.scope)) return { status: "unavailable", logins: [] };
   const channels = await channelTabs();
@@ -156,6 +184,7 @@ async function managedCommand(request) {
   const logins = [...new Set(channels.map(({ login }) => login))];
   if (request.method === "oshi_tabs") {
     const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+    if (logins.length <= 500) await registerLiveTabs(request.scope, request.liveRegistration, channels, windows, stored, tabs, pending);
     const extensionVersion = chrome.runtime.getManifest?.().version;
     return logins.length <= 500 && tabs.length <= maxManagedTabs
       ? { status: "complete", logins, managedTabs: tabs, windowCount: windows.length, extensionVersion, reservedTabIds: pending,
