@@ -54,7 +54,7 @@ For JSON-RPC 2.0, run the selected executable with `--rpc`, write one UTF-8 requ
 
 ## Build from source
 
-Install the .NET 10 SDK on Windows, then build and run from the repository root.
+Install the .NET 10 SDK on Windows, then build and run from the repository root. The repository uses the latest installed .NET 10 SDK feature band.
 
 ```powershell
 dotnet build src/oshituner/oshituner.csproj -warnaserror
