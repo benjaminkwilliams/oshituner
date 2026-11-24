@@ -15,7 +15,7 @@ internal sealed partial class TunerSession : IDisposable
         _settings = _store.Read();
         _tokens = new(profile);
         _browserDiscovery = new(new BrowserRegistration(profile));
-        ClientId = Environment.GetEnvironmentVariable("TWITCH_CLIENT_ID")?.Trim() ?? _settings.TwitchClientId ?? "";
+        _environmentClientId = Environment.GetEnvironmentVariable("TWITCH_CLIENT_ID")?.Trim() is { Length: > 0 } value ? value : null;
         Sort = _settings.Sort is { } saved && saved.IsValid() ? saved : GridSort.Default();
     }
 

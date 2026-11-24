@@ -8,10 +8,38 @@ namespace oshituner;
 internal sealed class TunerControl(
     TunerSession session, InstallProfile profile, Dispatcher dispatcher,
     Action openAbout, Action closeAbout, Func<bool> isAboutOpen,
-    Action openClientId, Action closeClientId, Func<bool> isClientIdOpen,
+    Action<bool> openClientId, Action closeClientId, Func<bool> isClientIdOpen,
     BrowserRegistration browsers, Action openBrowserIntegration, Action closeBrowserIntegration, DockWorkspace workspace,
-    ThemeController theme, Action openTheme, Action closeTheme, OshiCoordinator oshi, LaunchLog log)
+    Action openTwitchStatus, ThemeController theme, Action openTheme, Action closeTheme, OshiCoordinator oshi, LaunchLog log,
+    DesktopLaunchOptions launchOptions, string launchSource, LocalProtocolActivity protocolActivity)
 {
+    public AppInformation AboutSnapshot(BrowserExtensionInfo[] extensions) => AppInformation.Current with
+    {
+        BrowserExtensions = extensions,
+        Launch = new(launchSource, launchOptions.StartInTray ? "Tray" : "Windowed", launchOptions.StartOshiWatch,
+            launchOptions.McpEnabled, launchOptions.RpcEnabled),
+        ProtocolActivity = protocolActivity.Snapshot()
+    };
+
+    public static BrowserExtensionInfo ExtensionStatus(BrowserTarget target, string status, string? version = null) =>
+        new(target.Id, target.DisplayName, status, version);
+
+    public async Task<BrowserExtensionInfo> GetExtensionInfoAsync(BrowserTarget target, CancellationToken token)
+    {
+        try
+        {
+            if (target.FindExecutable() is null) return ExtensionStatus(target, "Not installed");
+            var browser = await session.BrowserDiscovery.GetOshiTabsAsync(target, token);
+            if (browser.ExtensionVersion is { } version) return ExtensionStatus(target, "Loaded", version);
+        }
+        catch (Exception exception) when (exception is System.IO.IOException or UnauthorizedAccessException
+            or System.Security.SecurityException) { }
+        return ExtensionStatus(target, "Unavailable");
+    }
+
+    public async Task<AppInformation> GetAboutAsync(CancellationToken token) =>
+        AboutSnapshot(await Task.WhenAll(BrowserRegistration.Targets.Select(target => GetExtensionInfoAsync(target, token))));
+
     public TunerState GetState() => new(1, profile.InstallFolder, AppInformation.Current.Version, AppInformation.Current.TwitchVersion,
         [new("twitch", session.ClientId, session.UserId, session.Busy, session.HasSavedAuthorization,
             session.ActivationUri is not null, session.CanReadSubscriptions, session.Message, session.GiftDiscoveryStatus)],
@@ -54,16 +82,16 @@ internal sealed class TunerControl(
         });
     }
 
-    public void SetClientId(string provider, string clientId)
+    public void SetClientId(string provider, string? clientId, bool useBuiltIn = false)
     {
         RequireTwitch(provider);
-        session.SetClientId(clientId);
+        session.SetClientId(clientId, useBuiltIn);
     }
 
     public void OpenClientId(string provider)
     {
         RequireTwitch(provider);
-        openClientId();
+        openClientId(false);
     }
 
     public void CloseClientId(string provider)
@@ -75,6 +103,15 @@ internal sealed class TunerControl(
     public void Start(string provider, bool allowSignIn)
     {
         RequireTwitch(provider);
+        if (allowSignIn)
+        {
+            openTwitchStatus();
+            if (session.NeedsClientChoice || session.ClientId.Length == 0)
+            {
+                openClientId(true);
+                return;
+            }
+        }
         _ = session.StartRefresh(allowSignIn);
     }
 
@@ -105,6 +142,8 @@ internal sealed class TunerControl(
         try
         {
             await session.WatchChannelAsync(channelId, browser, token, existingOnly);
+            if (!existingOnly) oshi.RearmBrowser(browser);
+            await oshi.ObserveWhilePausedAsync(token);
             log.Write("Watch", $"{target.DisplayName}: {operation} for {login} confirmed.");
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or System.IO.IOException or UnauthorizedAccessException)
@@ -219,10 +258,15 @@ internal sealed record TunerState(int ApiVersion, string InstallFolder, string V
 internal sealed record ProviderState(string Provider, string ClientId, string? UserId, bool Busy,
     bool HasSavedAuthorization, bool ActivationPending, bool CanReadSubscriptions, string Message, string GiftDiscoveryStatus);
 
+internal sealed record BrowserExtensionInfo(string Browser, string DisplayName, string Status, string? Version);
+internal sealed record DesktopLaunchInfo(string Source, string Mode, bool StartOshiWatch, bool McpEnabled, bool RpcEnabled);
+internal sealed record LocalProtocolInfo(int ActiveMcpConnections, DateTimeOffset? LastRpcRequest);
+
 internal sealed record LicenseInfo(string Name, string License, string Url);
 
 internal sealed record AppInformation(string Name, string Version, string TwitchVersion, string Repository,
-    string ThankYou, string Donations, LicenseInfo[] Licenses)
+    string ThankYou, string Donations, LicenseInfo[] Licenses,
+    BrowserExtensionInfo[]? BrowserExtensions = null, DesktopLaunchInfo? Launch = null, LocalProtocolInfo? ProtocolActivity = null)
 {
     private const string RepositoryUrl = "https://github.com/benjaminkwilliams/oshituner";
 

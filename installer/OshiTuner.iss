@@ -24,6 +24,9 @@ Source: "..\scripts\Guard-BrowserHost.ps1"; Flags: dontcopy noencryption
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#AppLicense}"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 
+[Tasks]
+Name: browserintegration; Description: "Create a Browser Integration Start Menu shortcut"; Flags: unchecked
+
 [Run]
 Filename: "{app}\oshituner.exe"; Parameters: "--browser-setup"; Description: "Set up Edge or Chrome integration"; Flags: postinstall skipifsilent unchecked
 
@@ -32,6 +35,8 @@ Filename: "{app}\oshituner.exe"; Parameters: "--remove-browser-pairings"; Flags:
 
 [Icons]
 Name: "{autoprograms}\Oshi Tuner"; Filename: "{app}\oshituner.exe"; WorkingDir: "{app}"
+Name: "{autoprograms}\Oshi Tuner Launch Options"; Filename: "{app}\oshituner.exe"; Parameters: "--launch-options"; WorkingDir: "{app}"
+Name: "{autoprograms}\Oshi Tuner Browser Integration"; Filename: "{app}\oshituner.exe"; Parameters: "--browser-setup"; WorkingDir: "{app}"; Tasks: browserintegration
 
 [Code]
 var

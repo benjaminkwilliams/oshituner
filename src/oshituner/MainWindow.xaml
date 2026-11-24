@@ -36,50 +36,16 @@
         </Menu>
     <Grid Margin="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="0,0,0,8">
-            <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal">
-                <Button x:Name="ConnectButton" Content="Connect Twitch" Click="ConnectButton_Click" Margin="0,0,6,0" />
-                <Button x:Name="DisconnectButton" Content="Disconnect" Click="DisconnectButton_Click" Margin="0,0,6,0" Visibility="Collapsed" />
-                <Button x:Name="CancelConnectButton" Content="Cancel" Click="CancelAuthorizationButton_Click" Margin="0,0,6,0" Visibility="Collapsed" />
-                <Border Background="{DynamicResource PanelBackground}" CornerRadius="16" Padding="13,7">
-                    <TextBlock x:Name="ConnectionStatusText" Text="Not connected" />
-                </Border>
-            </StackPanel>
-        </Grid>
+        <ContentControl x:Name="WorkspaceHost" Grid.Row="0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
 
-        <Border x:Name="AuthorizationPanel" Grid.Row="1" Background="{DynamicResource PanelBackground}" CornerRadius="8" Padding="16" Margin="0,0,0,14" Visibility="Collapsed">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel>
-                    <TextBlock Text="Finish signing in to Twitch" FontWeight="SemiBold" />
-                    <TextBlock x:Name="AuthorizationCodeText" Text="Waiting for Twitch..." FontSize="20" FontWeight="Bold" Margin="0,5,0,0" />
-                    <TextBlock Text="Open the activation page and enter this code. You only need to approve access once."
-                               Foreground="{DynamicResource MutedForeground}"
-                               Margin="0,4,0,0" />
-                </StackPanel>
-                <Button x:Name="OpenActivationButton" Grid.Column="1" Content="Open Twitch" Click="OpenActivationButton_Click" VerticalAlignment="Center" Margin="0,0,8,0" IsEnabled="False" />
-                <Button Grid.Column="2" Content="Cancel" Click="CancelAuthorizationButton_Click" VerticalAlignment="Center" Background="{DynamicResource DockHeaderBackground}" Foreground="{DynamicResource PrimaryForeground}" />
-            </Grid>
+        <StackPanel Grid.Row="1">
+        <Border x:Name="MessagePanel" Visibility="Collapsed" Background="{DynamicResource PanelBackground}" Margin="0,8,0,0" Padding="8,4">
+            <StackPanel x:Name="MessageEntries" />
         </Border>
-
-        <ContentControl x:Name="WorkspaceHost" Grid.Row="2" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
-
-        <StackPanel Grid.Row="3">
-        <TextBlock x:Name="MessageText"
-                   Text="Set your Twitch Client ID under Plugins > Twitch > Client ID."
-                   Foreground="{DynamicResource MutedForeground}"
-                   TextWrapping="Wrap"
-                   Margin="2,14,2,0" />
         <TextBlock x:Name="ControlStatus" Foreground="{DynamicResource MutedForeground}" TextWrapping="Wrap" />
         </StackPanel>
     </Grid>

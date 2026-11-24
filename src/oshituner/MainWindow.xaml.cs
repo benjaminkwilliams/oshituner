@@ -37,15 +37,32 @@ public partial class MainWindow : Window
     private bool _stoppingDesktop;
     private bool _hiddenToTray;
     private bool _desktopStarted;
+    private readonly Dictionary<string, (NoticeSeverity Severity, string Message)> _notices = [];
 
-    public MainWindow()
+    private readonly LocalProtocolActivity _protocolActivity = new();
+    private readonly DesktopLaunchOptions _launchOptions;
+    private readonly string _launchSource;
+
+    public MainWindow() : this(new(), "Start Menu or executable") { }
+
+    internal MainWindow(DesktopLaunchOptions options, string launchSource)
     {
+        _launchOptions = options;
+        _launchSource = launchSource;
         InitializeComponent();
         _profile = new();
         _instanceLock = _profile.Lock();
         _log = new(_profile);
         _log.Write("Startup", $"Oshi Tuner {AppInformation.Current.Version}, Twitch {AppInformation.Current.TwitchVersion}.");
-        try { _session = new(_profile, new HttpClient { Timeout = TimeSpan.FromSeconds(15) }); }
+        try
+        {
+            if (launchSource == "Launch Options")
+            {
+                var store = new SettingsStore(_profile);
+                store.Save(store.Read() with { LaunchOptions = options });
+            }
+            _session = new(_profile, new HttpClient { Timeout = TimeSpan.FromSeconds(15) });
+        }
         catch (Exception exception)
         {
             _log.Write("Startup", $"Could not load the installation settings ({exception.GetType().Name}).");
@@ -68,32 +85,36 @@ public partial class MainWindow : Window
         _control = new(_session, _profile, Dispatcher, ShowAbout, () => _about?.Close(), () => _about is not null,
             ShowClientId, () => _clientIdWindow?.Close(), () => _clientIdWindow is not null,
             _browsers, ShowBrowserIntegration, () => _browserIntegration?.Close(), _workspace,
-            _theme, ShowTheme, () => _themeWindow?.Close(), _oshi, _log);
-        _oshiView.SaveRequested = settings => Run(() => _control.SetOshi(settings));
-        _oshiView.RunningRequested = running => Run(() => _control.SetOshiRunning(running));
+            ShowTwitchStatusForConnection, _theme, ShowTheme, () => _themeWindow?.Close(), _oshi, _log, _launchOptions, _launchSource, _protocolActivity);
+        _oshiView.SaveRequested = settings => Run("Oshi settings", () => _control.SetOshi(settings));
+        _oshiView.RunningRequested = running => Run("Oshi Watch", () => _control.SetOshiRunning(running));
         _oshi.Changed += RenderOshi;
         _session.Changed += RenderOshi;
         _statusView.RankChoices = row => _session.CanRank(new(row.Provider, row.ChannelId)) &&
             !_session.Oshi.Ranks.Any(group => group.Channels.Any(entry => entry.Channel == new OshiChannelKey(row.Provider, row.ChannelId)))
             ? _session.Oshi.Ranks : null;
-        _statusView.AddOshiRequested = (row, rank) => Run(() =>
+        _statusView.AddOshiRequested = (row, rank) => Run("Rank channel", () =>
         {
             _control.AddOshiChannel(new(row.Provider, row.ChannelId), rank);
             _control.OpenPane("oshi");
         });
         RenderOshi();
-        _statusView.RefreshRequested = () => Run(() => _control.Start("twitch", false));
-        _statusView.IntervalChanged = minutes => Run(() => _control.SetAutoRefresh(minutes));
+        _statusView.ConnectRequested = () => Run("Twitch connection", () => _control.Start("twitch", true));
+        _statusView.DisconnectRequested = () => Run("Twitch connection", () => _control.Disconnect("twitch"));
+        _statusView.CancelAuthorizationRequested = () => Run("Twitch connection", () => _control.Cancel("twitch"));
+        _statusView.OpenActivationRequested = () => Run("Twitch activation", () => _control.OpenActivation("twitch"));
+        _statusView.RefreshRequested = () => Run("Twitch refresh", () => _control.Start("twitch", false));
+        _statusView.IntervalChanged = minutes => Run("Refresh interval", () => _control.SetAutoRefresh(minutes));
         _statusView.EditSortRequested = EditSort;
         _statusView.WatchRequested = WatchChannelAsync;
-        _statusView.CopyLoginRequested = login => Run(() => Clipboard.SetText(login));
+        _statusView.CopyLoginRequested = login => Run("Copy Twitch login", () => Clipboard.SetText(login));
         _session.Changed += RenderState;
         _watchTimer.Tick += (_, _) =>
         {
             _log.Prune();
             UpdateWatchTabs();
         };
-        _refreshTimer.Tick += (_, _) => { if (!_session.Busy) Run(() => _control.Start("twitch", false)); };
+        _refreshTimer.Tick += (_, _) => { if (!_session.Busy) Run("Twitch refresh", () => _control.Start("twitch", false)); };
         RenderState();
 
         _restoreState = WindowState;
@@ -115,28 +136,28 @@ public partial class MainWindow : Window
 
     private void RenderOshi() => _oshiView.Render(_control.GetOshi(), _session.Channels, _session.CanRank);
 
-    private void ShowOshi_Click(object sender, RoutedEventArgs e) => Run(() => _control.OpenPane("oshi"));
+    private void ShowOshi_Click(object sender, RoutedEventArgs e) => Run("Open pane", () => _control.OpenPane("oshi"));
 
-    private void ShowLog_Click(object sender, RoutedEventArgs e) => Run(() => _control.OpenPane("log"));
+    private void ShowLog_Click(object sender, RoutedEventArgs e) => Run("Open pane", () => _control.OpenPane("log"));
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
         Loaded -= Window_Loaded;
-        StartDesktop(autoLaunch: false);
+        StartDesktop();
     }
 
     internal void StartInTray()
     {
         _hiddenToTray = true;
         _workspace.SetTrayHidden(true);
-        StartDesktop(autoLaunch: true);
+        StartDesktop();
     }
 
-    private async void StartDesktop(bool autoLaunch)
+    private async void StartDesktop()
     {
         if (_desktopStarted) return;
         _desktopStarted = true;
-        _log.Write("Startup", autoLaunch ? "Started in the tray by a paired browser." : "Started from the desktop.");
+        _log.Write("Startup", $"{_launchSource}, {(_launchOptions.StartInTray ? "tray" : "windowed")}. Oshi Watch: {_launchOptions.StartOshiWatch}; MCP: {_launchOptions.McpEnabled}; JSON-RPC: {_launchOptions.RpcEnabled}.");
         _workspace.Restore();
         _log.Write("Startup", "Workspace restored.");
         try
@@ -148,26 +169,28 @@ public partial class MainWindow : Window
         {
             _log.Write("Browser", $"Could not inspect browser registrations ({exception.GetType().Name}).");
         }
-        if (autoLaunch) _oshi.SetRunning(true);
+        if (_launchOptions.StartOshiWatch) _oshi.SetRunning(true);
         _ = ObserveWatchChangesAsync();
         _watchTimer.Start();
         _log.Write("Startup", "Browser tab monitoring started.");
         try
         {
-            var host = await LocalControlHost.StartAsync(_control, _profile, message => _log.Write("IPC", message), _lifetime.Token);
-            if (_lifetime.IsCancellationRequested)
+            if (_launchOptions.McpEnabled || _launchOptions.RpcEnabled)
             {
-                await host.DisposeAsync();
-                return;
+                var host = await LocalControlHost.StartAsync(_control, _profile, _launchOptions, _protocolActivity, message => _log.Write("IPC", message), _lifetime.Token);
+                if (_lifetime.IsCancellationRequested)
+                {
+                    await host.DisposeAsync();
+                    return;
+                }
+                _host = host;
+                _log.Write("Startup", "Local API listening on Windows named pipes.");
             }
-            _host = host;
-            _log.Write("Startup", "Local API listening on Windows named pipes.");
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException or CryptographicException)
         {
-            _log.Write("Startup", $"Local API unavailable ({exception.GetType().Name}).");
-            ControlStatus.Text = "Local API unavailable. The desktop controls are available.";
+            SetNotice("Local API", NoticeSeverity.Error, $"Local API unavailable ({exception.GetType().Name}). The desktop controls are available.");
         }
         if (!_lifetime.IsCancellationRequested && !_session.Busy)
         {
@@ -258,25 +281,36 @@ public partial class MainWindow : Window
     {
         try { await _session.ObserveWatchChangesAsync(UpdateWatchTabs, message => _log.Write("IPC", message), _lifetime.Token); }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (UnauthorizedAccessException) { ReportError("Could not receive browser tab changes."); }
+        catch (UnauthorizedAccessException) { SetNotice("Browser notifications", NoticeSeverity.Warning, "Could not receive browser tab changes."); }
     }
 
     private async void UpdateWatchTabs()
     {
-        try { await _session.SyncWatchTabsAsync(_lifetime.Token); }
+        try
+        {
+            await _oshi.ObserveWhilePausedAsync(_lifetime.Token);
+            await _session.SyncWatchTabsAsync(_lifetime.Token);
+            SetNotice("Browser tabs", NoticeSeverity.None, "");
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            ReportError("Could not read the browser's Twitch tabs.");
+            SetNotice("Browser tabs", NoticeSeverity.Warning, "Could not read the browser's Twitch tabs.");
         }
     }
 
     private async Task WatchChannelAsync(FollowedChannelRow row, string browser, bool existingOnly)
     {
-        try { await _control.WatchChannelAsync(row.ChannelId, browser, _lifetime.Token, existingOnly); }
+        var source = $"Watch ({browser})";
+        try
+        {
+            await _control.WatchChannelAsync(row.ChannelId, browser, _lifetime.Token, existingOnly);
+            SetNotice(source, NoticeSeverity.None, "");
+        }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
         {
-            ReportError(exception.Message);
+            SetNotice(source, NoticeSeverity.Error, exception.Message);
         }
     }
 
@@ -288,12 +322,12 @@ public partial class MainWindow : Window
     }
 
     private void AutoLaunchEnabled_Click(object sender, RoutedEventArgs e) =>
-        Run(() => _control.SetOshi(_session.Oshi with { AutoLaunch = AutoLaunchEnabled.IsChecked }));
+        Run("Auto Launch", () => _control.SetOshi(_session.Oshi with { AutoLaunch = AutoLaunchEnabled.IsChecked }));
 
     private void AutoLaunchCooldown_Click(object sender, RoutedEventArgs e)
     {
         if (sender is MenuItem { Tag: int hours })
-            Run(() => _control.SetOshi(_session.Oshi with { AutoLaunchCooldownHours = hours }));
+            Run("Auto Launch", () => _control.SetOshi(_session.Oshi with { AutoLaunchCooldownHours = hours }));
     }
 
     private void Theme_Click(object sender, RoutedEventArgs e) => _control.OpenTheme();
@@ -329,26 +363,27 @@ public partial class MainWindow : Window
 
     private void ClientId_Click(object sender, RoutedEventArgs e) => _control.OpenClientId("twitch");
 
-    private void ConnectButton_Click(object sender, RoutedEventArgs e)
+    private void ShowTwitchStatusForConnection()
     {
-        if (_session.ClientId.Length == 0)
-            _control.OpenClientId("twitch");
-        else
-            Run(() => _control.Start("twitch", true));
+        if (_hiddenToTray) RestoreFromTray();
+        _control.OpenPane("twitch-status");
     }
-    private void CancelAuthorizationButton_Click(object sender, RoutedEventArgs e) => Run(() => _control.Cancel("twitch"));
-    private void DisconnectButton_Click(object sender, RoutedEventArgs e) => Run(() => _control.Disconnect("twitch"));
-    private void OpenActivationButton_Click(object sender, RoutedEventArgs e) => Run(() => _control.OpenActivation("twitch"));
+
     private void About_Click(object sender, RoutedEventArgs e) => _control.OpenAbout();
 
     private void CopyCodexConfiguration_Click(object sender, RoutedEventArgs e)
     {
+        if (!_launchOptions.McpEnabled)
+        {
+            ControlStatus.Text = "MCP is disabled for this launch.";
+            return;
+        }
         if (_host is null)
         {
             ControlStatus.Text = "Local API unavailable.";
             return;
         }
-        Run(() =>
+        Run("Copy Codex configuration", () =>
         {
             Clipboard.SetText(_host.CodexConfiguration);
             ControlStatus.Text = "Codex configuration copied.";
@@ -356,24 +391,25 @@ public partial class MainWindow : Window
     }
 
     private void ShowTwitchStatus_Click(object sender, RoutedEventArgs e) =>
-        Run(() => _control.OpenPane("twitch-status"));
+        Run("Open pane", () => _control.OpenPane("twitch-status"));
 
     private void EditSort()
     {
         var dialog = new SortWindow(_control.GetSort()) { Owner = Window.GetWindow(_statusView) ?? this };
         _workspace.TrackDialog(dialog, "sort");
-        if (dialog.ShowDialog() == true) Run(() => _control.SetSort(dialog.Selection));
+        if (dialog.ShowDialog() == true) Run("Channel sort", () => _control.SetSort(dialog.Selection));
     }
 
-    private void ShowClientId()
+    private void ShowClientId(bool connectAfterSave)
     {
         if (_clientIdWindow is not null)
         {
+            if (connectAfterSave) _clientIdWindow.RequestConnectAfterSave();
             _clientIdWindow.Activate();
             return;
         }
 
-        _clientIdWindow = new ClientIdWindow(_control, _session.ClientId, !_session.Busy && _session.UserId is null)
+        _clientIdWindow = new ClientIdWindow(_control, _session, connectAfterSave)
             { Owner = this };
         _workspace.TrackDialog(_clientIdWindow, "client-id");
         _clientIdWindow.Closed += (_, _) => _clientIdWindow = null;
@@ -393,37 +429,59 @@ public partial class MainWindow : Window
         _about.Show();
     }
 
-    private void Run(Action action)
+    private void Run(string source, Action action)
     {
-        try { action(); }
+        try
+        {
+            action();
+            SetNotice(source, NoticeSeverity.None, "");
+        }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException or ExternalException)
         {
-            ReportError(ex.Message);
+            SetNotice(source, NoticeSeverity.Error, ex.Message);
         }
     }
 
-    private void ReportError(string message) => MessageText.Text = message;
+    private void ReportError(string? message) =>
+        SetNotice("Workspace", message is null ? NoticeSeverity.None : NoticeSeverity.Error, message ?? "");
+
+    private void SetNotice(string source, NoticeSeverity severity, string message)
+    {
+        if (severity == NoticeSeverity.None)
+        {
+            if (!_notices.Remove(source)) return;
+        }
+        else
+        {
+            var notice = (severity, message);
+            if (_notices.TryGetValue(source, out var existing) && existing == notice) return;
+            _notices[source] = notice;
+            _log.Write(source, $"{severity}: {message}");
+        }
+
+        MessageEntries.Children.Clear();
+        foreach (var (owner, notice) in _notices)
+        {
+            var entry = new TextBlock
+            {
+                Text = $"{notice.Severity} · {owner}: {notice.Message}",
+                TextWrapping = TextWrapping.Wrap
+            };
+            entry.SetResourceReference(TextBlock.ForegroundProperty,
+                notice.Severity == NoticeSeverity.Error ? "ErrorForeground" : "WarningForeground");
+            entry.SetValue(System.Windows.Automation.AutomationProperties.LiveSettingProperty,
+                System.Windows.Automation.AutomationLiveSetting.Polite);
+            MessageEntries.Children.Add(entry);
+        }
+        MessagePanel.Visibility = _notices.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
 
     private void RenderState()
     {
         var connected = _session.UserId is not null;
-        var authorizing = _session.ActivationUri is not null;
-        var busy = _session.Busy;
-        AuthorizationPanel.Visibility = VisibleWhen(authorizing);
-        OpenActivationButton.IsEnabled = authorizing;
-        AuthorizationCodeText.Text = _session.ActivationCode;
-        ConnectButton.Visibility = VisibleWhen(!busy && (!connected || !_session.CanReadSubscriptions));
-        ConnectButton.Content = connected ? "Enable subs" : "Connect Twitch";
-        DisconnectButton.Visibility = VisibleWhen(!busy && (connected || _session.HasSavedAuthorization));
-        CancelConnectButton.Visibility = VisibleWhen(busy && !authorizing);
-        ConnectionStatusText.Text = authorizing ? "Approve on Twitch"
-            : busy ? connected ? "Refreshing…" : "Checking Twitch…"
-            : connected ? "Connected" : "Not connected";
-        _clientIdWindow?.SetEditable(!busy && !connected);
-        ConnectButton.IsEnabled = !busy;
-        DisconnectButton.IsEnabled = !busy;
+        _clientIdWindow?.SetEditable(!_session.Busy);
         _statusView.Render(_session);
-        MessageText.Text = _session.Message;
+        SetNotice("Twitch", _session.NoticeSeverity, _session.Notice);
         var interval = TimeSpan.FromMinutes(_session.AutoRefreshMinutes);
         if (_refreshTimer.Interval != interval)
         {
@@ -434,5 +492,4 @@ public partial class MainWindow : Window
         else _refreshTimer.Stop();
     }
 
-    private static Visibility VisibleWhen(bool condition) => condition ? Visibility.Visible : Visibility.Collapsed;
 }

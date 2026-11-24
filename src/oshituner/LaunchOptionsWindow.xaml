@@ -1,0 +1,17 @@
+<Window x:Class="oshituner.LaunchOptionsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Oshi Tuner Launch Options" Width="360" SizeToContent="Height"
+        ResizeMode="NoResize" WindowStartupLocation="CenterScreen">
+    <StackPanel Margin="24" TextElement.Foreground="{DynamicResource PrimaryForeground}">
+        <RadioButton x:Name="Windowed" Content="Open the main window" Margin="0,0,0,8" />
+        <RadioButton x:Name="Tray" Content="Start in the system tray" Margin="0,0,0,16" />
+        <CheckBox x:Name="Watch" Content="Start Oshi Watch Timer" Margin="0,0,0,8" />
+        <CheckBox x:Name="Mcp" Content="Enable MCP" Margin="0,0,0,8" />
+        <CheckBox x:Name="Rpc" Content="Enable JSON-RPC" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Content="Cancel" IsCancel="True" Margin="0,0,8,0" />
+            <Button Content="Launch" IsDefault="True" Click="Launch_Click" />
+        </StackPanel>
+    </StackPanel>
+</Window>

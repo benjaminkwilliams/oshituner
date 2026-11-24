@@ -100,6 +100,8 @@ internal sealed class ThemeController : IDisposable
         Set("AccentBrush", light ? 0x5E2AA3u : 0x7134BDu, SystemColors.HighlightColor);
         Set("AccentForeground", 0xFFFFFFu, SystemColors.HighlightTextColor);
         Set("DisabledForeground", light ? 0x65656Du : 0xB0B0B8u, SystemColors.GrayTextColor);
+        Set("WarningForeground", light ? 0x705100u : 0xFFD766u, SystemColors.WindowTextColor);
+        Set("ErrorForeground", light ? 0x9E1A16u : 0xFF8C8Cu, SystemColors.WindowTextColor);
         Set("LiveBrush", light ? 0x9E1A16u : 0xFF6666u, SystemColors.WindowTextColor);
         Set("WatchBrush", light ? 0x17682Du : 0x8DE89Du, SystemColors.WindowTextColor);
         Set("WatchingBrush", light ? 0x17549Cu : 0x8AC8FFu, SystemColors.WindowTextColor);

@@ -1,9 +1,12 @@
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Text.Json;
 
 namespace oshituner;
+
+internal enum NoticeSeverity { None, Warning, Error }
 
 internal sealed partial class TunerSession
 {
@@ -13,7 +16,19 @@ internal sealed partial class TunerSession
     private CancellationTokenSource? _operation;
     private bool _disposed;
 
-    public string ClientId { get; private set; }
+    private static readonly string BuiltInId = typeof(TunerSession).Assembly
+        .GetCustomAttributes<AssemblyMetadataAttribute>()
+        .FirstOrDefault(attribute => attribute.Key == "OshiTwitchClientId")?.Value ?? "";
+    private readonly string? _environmentClientId;
+
+    internal BrowserDiscovery BrowserDiscovery => _browserDiscovery;
+
+    public bool HasBuiltInClientId => BuiltInId.Length > 0;
+    public bool ClientIdOverridden => _environmentClientId is not null;
+    public string CustomClientId => _settings.TwitchClientId ?? "";
+    public bool UsingBuiltInClientId => _settings.UseBuiltInTwitchClientId ?? (CustomClientId.Length == 0 && HasBuiltInClientId);
+    public bool NeedsClientChoice => !ClientIdOverridden && _settings.UseBuiltInTwitchClientId is null && CustomClientId.Length == 0;
+    public string ClientId => _environmentClientId ?? (UsingBuiltInClientId ? BuiltInId : CustomClientId);
     public string? UserId { get; private set; }
     public bool CanReadSubscriptions { get; private set; }
     public string GiftDiscoveryStatus { get; private set; } = "not_checked";
@@ -21,16 +36,40 @@ internal sealed partial class TunerSession
     public bool HasSavedAuthorization => _tokens.HasSavedAuthorization;
     public Uri? ActivationUri { get; private set; }
     public string? ActivationCode { get; private set; }
-    public string Message { get; private set; } = "Enter your Twitch Client ID under Plugins > Twitch > Client ID to get started.";
+    public string Message { get; private set; } = "";
+    public string Notice { get; private set; } = "";
+    public NoticeSeverity NoticeSeverity { get; private set; }
 
-    public void SetClientId(string value)
+    private void SetNotice(NoticeSeverity severity, string message)
+    {
+        NoticeSeverity = severity;
+        Notice = message;
+    }
+
+    public bool ClientChoiceNeedsAuthorization(bool useBuiltIn, string customId) =>
+        (UserId is not null || HasSavedAuthorization) &&
+        !string.Equals(ClientId, _environmentClientId ?? (useBuiltIn ? BuiltInId : customId.Trim()), StringComparison.Ordinal);
+
+    public void SetClientId(string? value, bool useBuiltIn = false, bool replaceAuthorization = false)
     {
         RequireIdle();
-        if (UserId is not null) throw new InvalidOperationException("Disconnect before changing the Client ID.");
-        value = value.Trim();
-        if (value.Length > 128) throw new ArgumentException("The Client ID must be at most 128 characters.");
-        ClientId = value;
-        Changed?.Invoke();
+        var customId = useBuiltIn ? CustomClientId : value?.Trim() ?? "";
+        if (useBuiltIn && !HasBuiltInClientId) throw new InvalidOperationException("This installation has no built-in Twitch Client ID.");
+        if (!useBuiltIn && (customId.Length is < 1 or > 128 || !customId.All(char.IsAsciiLetterOrDigit)))
+            throw new ArgumentException("Enter a Twitch Client ID containing 1 to 128 letters or digits.");
+
+        var replace = ClientChoiceNeedsAuthorization(useBuiltIn, customId);
+        if (replace && !replaceAuthorization) throw new InvalidOperationException("Disconnect Twitch before changing the active Client ID.");
+        SaveSettings(_settings with { TwitchClientId = customId, UseBuiltInTwitchClientId = useBuiltIn });
+        try
+        {
+            if (replace) _tokens.Clear();
+        }
+        finally
+        {
+            if (replace) EndSession("Twitch authorization is needed for the selected Client ID.");
+            Changed?.Invoke();
+        }
     }
 
     public Task RestoreAsync() => ClientId.Length > 0 && (HasSavedAuthorization || _tokens.CanAdoptLegacy)
@@ -71,8 +110,6 @@ internal sealed partial class TunerSession
             UserId = access.UserId;
             _watchAccess = access;
             CanReadSubscriptions = access.CanReadSubscriptions;
-            if (_settings.TwitchClientId != ClientId)
-                SaveSettings(_settings with { TwitchClientId = ClientId });
             Changed?.Invoke();
 
             var api = new TwitchApiClient(_http, ClientId);
@@ -91,10 +128,11 @@ internal sealed partial class TunerSession
         catch (OperationCanceledException)
         {
             Message = "Twitch did not respond in time. Try again.";
+            SetNotice(NoticeSeverity.Warning, Message);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
         {
-            EndSession("Twitch rejected the session. Connect again to continue.");
+            EndSession("Twitch rejected the session. Connect again to continue.", NoticeSeverity.Error);
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException
             or InvalidOperationException or JsonException)
@@ -102,6 +140,7 @@ internal sealed partial class TunerSession
             Message = ex is HttpRequestException or InvalidOperationException
                 ? ex.Message
                 : "Could not update Twitch. Check your connection and Windows profile permissions, then retry.";
+            SetNotice(NoticeSeverity.Error, Message);
         }
         finally
         {
@@ -126,7 +165,7 @@ internal sealed partial class TunerSession
         Changed?.Invoke();
     }
 
-    private void EndSession(string message)
+    private void EndSession(string message, NoticeSeverity severity = NoticeSeverity.None)
     {
         UserId = null;
         CanReadSubscriptions = false;
@@ -134,6 +173,7 @@ internal sealed partial class TunerSession
         _rows = [];
         ClearWatchRows();
         Message = message;
+        SetNotice(severity, severity == NoticeSeverity.None ? "" : message);
     }
 
     private void ShowDeviceCode(Uri uri, string code)
@@ -220,6 +260,10 @@ internal sealed partial class TunerSession
             : _rows.Any(row => row.SubscriptionCheckStale || row.Subbed is null || row.Online is null)
                 ? "Some Twitch channel details could not be verified on this refresh."
                 : _rows.Length == 0 ? "No followed channels or verified gifted subs." : "";
+        var incomplete = follows.Length > followedLiveLimit || _rows.Any(row => row.Online is null ||
+            (CanReadSubscriptions && (row.SubscriptionCheckStale || row.Subbed is null)));
+        SetNotice(incomplete ? NoticeSeverity.Warning : NoticeSeverity.None,
+            incomplete ? "Some Twitch channel details could not be verified on this refresh." : "");
     }
 
     private async Task<IReadOnlyList<TwitchChannel>> TryGetUsersAsync(TwitchApiClient api, TwitchAccess access,

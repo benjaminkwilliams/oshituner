@@ -20,7 +20,7 @@ internal sealed partial class DockWorkspace : Grid
 {
     private readonly Window _shell;
     private readonly TunerSession _session;
-    private readonly Action<string> _reportError;
+    private readonly Action<string?> _reportError;
     private readonly List<Group> _groups = [];
     private readonly Dictionary<string, Pane> _panes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DockLocation> _lastDocks = new(StringComparer.Ordinal);
@@ -31,7 +31,7 @@ internal sealed partial class DockWorkspace : Grid
     private bool _restoring;
     private bool _trayHidden;
 
-    public DockWorkspace(Window shell, TunerSession session, Action<string> reportError)
+    public DockWorkspace(Window shell, TunerSession session, Action<string?> reportError)
     {
         _shell = shell;
         _session = session;
@@ -331,7 +331,11 @@ internal sealed partial class DockWorkspace : Grid
 
     private void Save()
     {
-        try { _session.SetWorkspace(Snapshot()); }
+        try
+        {
+            _session.SetWorkspace(Snapshot());
+            _reportError(null);
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { _reportError(exception.Message); }
     }
 

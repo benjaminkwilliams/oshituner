@@ -35,9 +35,10 @@ internal sealed class McpTunerTools
     public static Task<FollowedChannelRow[]> GetChannels(TunerControl control, CancellationToken cancellationToken,
         bool? online = null, bool? subbed = null) => control.OnUiAsync(() => control.GetChannels(online, subbed), cancellationToken);
 
-    [McpServerTool(Name = "set_client_id"), Description("Set the current provider application Client ID before connecting.")]
+    [McpServerTool(Name = "set_client_id"), Description("Set a custom provider application Client ID or select the packaged ID with useBuiltIn.")]
     public static Task<TunerState> SetClientId(TunerControl control, CancellationToken cancellationToken,
-        string clientId, string provider = "twitch") => control.ChangeAsync(() => control.SetClientId(provider, clientId), cancellationToken);
+        string? clientId = null, string provider = "twitch", bool useBuiltIn = false) =>
+        control.ChangeAsync(() => control.SetClientId(provider, clientId, useBuiltIn), cancellationToken);
 
     [McpServerTool(Name = "open_client_id"), Description("Open the provider Client ID settings on the selected instance.")]
     public static Task<TunerState> OpenClientId(TunerControl control, CancellationToken cancellationToken, string provider = "twitch") =>
@@ -165,8 +166,9 @@ internal sealed class McpTunerTools
     public static Task<TunerState> ResetSort(TunerControl control, CancellationToken cancellationToken) =>
         control.ChangeAsync(control.ResetSort, cancellationToken);
 
-    [McpServerTool(Name = "get_about"), Description("Read the running app version, repository, donations, and license notices.")]
-    public static AppInformation GetAbout() => AppInformation.Current;
+    [McpServerTool(Name = "get_about"), Description("Read the running app and extension versions, launch options, local protocol activity, and About links.")]
+    public static Task<AppInformation> GetAbout(TunerControl control, CancellationToken cancellationToken) =>
+        control.GetAboutAsync(cancellationToken);
 
     [McpServerTool(Name = "open_about"), Description("Open the About window on the selected instance.")]
     public static Task<TunerState> OpenAbout(TunerControl control, CancellationToken cancellationToken) =>

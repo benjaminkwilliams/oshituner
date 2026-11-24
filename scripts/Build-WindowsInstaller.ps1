@@ -1,8 +1,10 @@
 param(
-    [string] $OutputDirectory = '.plans/verification-build/installer'
+    [string] $OutputDirectory = '.plans/verification-build/installer',
+    [string] $TwitchClientId = $env:OSHI_TWITCH_CLIENT_ID
 )
 
 $ErrorActionPreference = 'Stop'
+if ($TwitchClientId -and $TwitchClientId -cnotmatch '^[A-Za-z0-9]{1,128}$') { throw 'Invalid public Twitch Client ID.' }
 $root = Split-Path -Parent $PSScriptRoot
 $src = Join-Path $root 'src/oshituner'
 $version = ([xml](Get-Content -LiteralPath (Join-Path $src 'Version.props') -Raw)).Project.PropertyGroup.OshiOfficialVersion
@@ -24,7 +26,7 @@ $output = [IO.Path]::GetFullPath($OutputDirectory)
 $null = New-Item -ItemType Directory -Path $output -Force
 $publish = Join-Path $output ("publish-" + [Guid]::NewGuid())
 try {
-    dotnet publish (Join-Path $src 'oshituner.csproj') -c Release -r win-x64 --self-contained true -o $publish -warnaserror -p:OshiUseOfficialVersion=true
+    dotnet publish (Join-Path $src 'oshituner.csproj') -c Release -r win-x64 --self-contained true -o $publish -warnaserror -p:OshiUseOfficialVersion=true "-p:OshiTwitchClientId=$TwitchClientId"
     if ($LASTEXITCODE -ne 0) { throw 'The self-contained publish failed.' }
 
     $runtimeConfig = Get-Content -LiteralPath (Join-Path $publish 'oshituner.runtimeconfig.json') -Raw | ConvertFrom-Json

@@ -15,6 +15,10 @@
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(OshiTwitchClientId)' != ''">
+    <AssemblyMetadata Include="OshiTwitchClientId" Value="$(OshiTwitchClientId)" />
+  </ItemGroup>
+
   <ItemGroup>
     <Content Include="../../browser/edge/manifest.json" Link="browser/edge/manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../browser/chrome/manifest.json" Link="browser/chrome/manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

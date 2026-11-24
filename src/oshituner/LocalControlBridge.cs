@@ -7,7 +7,7 @@ using ModelContextProtocol.Server;
 
 namespace oshituner;
 
-internal sealed class LocalMcpConnection(IServiceProvider services) : ConnectionHandler
+internal sealed class LocalMcpConnection(IServiceProvider services, LocalProtocolActivity activity) : ConnectionHandler
 {
     private readonly McpServerTool[] _tools = typeof(McpTunerTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
         .Where(method => method.IsDefined(typeof(McpServerToolAttribute)))
@@ -24,7 +24,9 @@ internal sealed class LocalMcpConnection(IServiceProvider services) : Connection
             ServerInfo = new() { Name = "Oshi Tuner", Version = AppInformation.Current.Version },
             ToolCollection = tools
         }, serviceProvider: services);
-        await server.RunAsync(connection.ConnectionClosed).ConfigureAwait(false);
+        activity.McpOpened();
+        try { await server.RunAsync(connection.ConnectionClosed).ConfigureAwait(false); }
+        finally { activity.McpClosed(); }
     }
 }
 

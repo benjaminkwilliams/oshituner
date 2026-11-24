@@ -96,9 +96,32 @@ public partial class App : Application
                 return;
             }
 
-            var desktop = new MainWindow();
+            var options = new DesktopLaunchOptions();
+            var source = "Start Menu or executable";
+            if (e.Args is ["--launch-options"])
+            {
+                var profile = new InstallProfile();
+                var store = new SettingsStore(profile);
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                var dialog = new LaunchOptionsWindow(store.Read().LaunchOptions ?? options);
+                if (dialog.ShowDialog() != true)
+                {
+                    Shutdown();
+                    return;
+                }
+                options = dialog.Options;
+                source = "Launch Options";
+            }
+            else if (autoLaunch)
+            {
+                options = options with { StartInTray = true, StartOshiWatch = true };
+                source = "Paired browser";
+            }
+
+            var desktop = new MainWindow(options, source);
             MainWindow = desktop;
-            if (autoLaunch) desktop.StartInTray();
+            ShutdownMode = ShutdownMode.OnMainWindowClose;
+            if (options.StartInTray) desktop.StartInTray();
             else desktop.Show();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)

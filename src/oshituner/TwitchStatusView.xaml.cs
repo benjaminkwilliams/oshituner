@@ -35,9 +35,33 @@ public partial class TwitchStatusView : UserControl
         }
     }
 
+    internal Action? ConnectRequested { get; set; }
+    internal Action? DisconnectRequested { get; set; }
+    internal Action? CancelAuthorizationRequested { get; set; }
+    internal Action? OpenActivationRequested { get; set; }
+
+    private void ConnectButton_Click(object sender, RoutedEventArgs e) => ConnectRequested?.Invoke();
+    private void DisconnectButton_Click(object sender, RoutedEventArgs e) => DisconnectRequested?.Invoke();
+    private void CancelAuthorizationButton_Click(object sender, RoutedEventArgs e) => CancelAuthorizationRequested?.Invoke();
+    private void OpenActivationButton_Click(object sender, RoutedEventArgs e) => OpenActivationRequested?.Invoke();
+    private static Visibility VisibleWhen(bool condition) => condition ? Visibility.Visible : Visibility.Collapsed;
+
     internal void Render(TunerSession session)
     {
         var connected = session.UserId is not null;
+        var authorizing = session.ActivationUri is not null;
+        var busy = session.Busy;
+        AuthorizationPanel.Visibility = VisibleWhen(authorizing);
+        OpenActivationButton.IsEnabled = authorizing;
+        AuthorizationCodeText.Text = session.ActivationCode;
+        ConnectButton.Visibility = VisibleWhen(!busy && (!connected || !session.CanReadSubscriptions));
+        ConnectButton.Content = connected ? "Enable subs" : "Connect Twitch";
+        DisconnectButton.Visibility = VisibleWhen(!busy && (connected || session.HasSavedAuthorization));
+        CancelConnectButton.Visibility = VisibleWhen(busy && !authorizing);
+        ConnectionStatusText.Text = authorizing ? "Approve on Twitch"
+            : busy ? connected ? "Refreshing…" : "Checking Twitch…"
+            : connected ? "Connected" : "Not connected";
+        ConnectionStatusText.ToolTip = string.IsNullOrEmpty(session.Message) ? null : session.Message;
         ListToolbar.Visibility = connected && session.ActivationUri is null ? Visibility.Visible : Visibility.Collapsed;
         EmptyStatePanel.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;
         RefreshNow.IsEnabled = !session.Busy;

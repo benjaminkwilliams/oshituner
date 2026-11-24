@@ -13,6 +13,22 @@ using ModelContextProtocol.AspNetCore;
 
 namespace oshituner;
 
+internal sealed class LocalProtocolActivity
+{
+    private int _mcpConnections;
+    private long _lastRpcRequest;
+
+    public void McpOpened() => Interlocked.Increment(ref _mcpConnections);
+    public void McpClosed() => Interlocked.Decrement(ref _mcpConnections);
+    public void RpcReceived() => Interlocked.Exchange(ref _lastRpcRequest, DateTimeOffset.UtcNow.UtcTicks);
+
+    public LocalProtocolInfo Snapshot()
+    {
+        var ticks = Interlocked.Read(ref _lastRpcRequest);
+        return new(Volatile.Read(ref _mcpConnections), ticks == 0 ? null : new DateTimeOffset(ticks, TimeSpan.Zero));
+    }
+}
+
 internal sealed class LocalControlHost(WebApplication app, InstallProfile profile, PipeRendezvous endpoint) : IAsyncDisposable
 {
     internal const int MaxRpcBytes = 65_536;
@@ -29,7 +45,7 @@ internal sealed class LocalControlHost(WebApplication app, InstallProfile profil
     internal static string PipeName(string name, bool mcp) => name + (mcp ? "-mcp" : "-rpc");
 
     public static async Task<LocalControlHost> StartAsync(TunerControl control, InstallProfile profile,
-        Action<string> diagnostic, CancellationToken cancellationToken)
+        DesktopLaunchOptions options, LocalProtocolActivity activity, Action<string> diagnostic, CancellationToken cancellationToken)
     {
         // Migrating to Windows IPC invalidates the old network credential, including on rollback.
         File.Delete(profile.PathFor("control.dat"));
@@ -40,7 +56,7 @@ internal sealed class LocalControlHost(WebApplication app, InstallProfile profil
         {
             for (var attempt = 0; ; attempt++)
             {
-                try { return await StartEndpointAsync(control, profile, endpoint, cancellationToken); }
+                try { return await StartEndpointAsync(control, profile, endpoint, options, activity, cancellationToken); }
                 catch (Exception exception) when (attempt < 2 && exception is (IOException or UnauthorizedAccessException))
                 {
                     diagnostic($"Control IPC listener unavailable ({exception.GetType().Name}); retrying.");
@@ -56,7 +72,7 @@ internal sealed class LocalControlHost(WebApplication app, InstallProfile profil
     }
 
     private static async Task<LocalControlHost> StartEndpointAsync(TunerControl control, InstallProfile profile,
-        PipeRendezvous endpoint, CancellationToken cancellationToken)
+        PipeRendezvous endpoint, DesktopLaunchOptions options, LocalProtocolActivity activity, CancellationToken cancellationToken)
     {
         var name = PipeRendezvous.NewName();
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
@@ -65,11 +81,12 @@ internal sealed class LocalControlHost(WebApplication app, InstallProfile profil
         builder.WebHost.ConfigureKestrel(server =>
         {
             server.Configure(new ConfigurationBuilder().Build());
-            server.ListenNamedPipe(PipeName(name, mcp: false));
-            server.ListenNamedPipe(PipeName(name, mcp: true), mcp => mcp.UseConnectionHandler<LocalMcpConnection>());
+            if (options.RpcEnabled) server.ListenNamedPipe(PipeName(name, mcp: false));
+            if (options.McpEnabled) server.ListenNamedPipe(PipeName(name, mcp: true), mcp => mcp.UseConnectionHandler<LocalMcpConnection>());
             server.Limits.MaxRequestBodySize = MaxRpcBytes;
         });
         builder.Services.AddSingleton(control);
+        builder.Services.AddSingleton(activity);
         builder.Services.AddSingleton<LocalMcpConnection>();
         builder.Services.AddMcpServer(options =>
         {
@@ -91,8 +108,8 @@ internal sealed class LocalControlHost(WebApplication app, InstallProfile profil
             }
             await next(context);
         });
-        app.MapPost("/rpc", (Delegate)((HttpContext http) => DispatchAsync(http, control)));
-        app.MapMcp("/mcp");
+        if (options.RpcEnabled) app.MapPost("/rpc", (Delegate)((HttpContext http) => DispatchAsync(http, control, activity)));
+        if (options.McpEnabled && options.RpcEnabled) app.MapMcp("/mcp");
         try
         {
             await app.StartAsync(cancellationToken);
@@ -106,7 +123,7 @@ internal sealed class LocalControlHost(WebApplication app, InstallProfile profil
         }
     }
 
-    private static async Task<IResult> DispatchAsync(HttpContext http, TunerControl control)
+    private static async Task<IResult> DispatchAsync(HttpContext http, TunerControl control, LocalProtocolActivity activity)
     {
         JsonDocument document;
         try { document = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: http.RequestAborted); }
@@ -126,10 +143,12 @@ internal sealed class LocalControlHost(WebApplication app, InstallProfile profil
             if (args.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Object))
                 return id.HasValue ? Error(id, -32602, "Pass named parameters as an object.") : Results.NoContent();
 
+            activity.RpcReceived();
             try
             {
                 object result = method.GetString() switch
                 {
+                    "get_about" => await control.GetAboutAsync(http.RequestAborted),
                     "import_theme_image" => await control.ImportThemeImageAsync(Required<string>(args, "source"),
                         http.RequestAborted, Optional<bool?>(args, "allowPrivate") ?? false),
                     "watch_channel" => await control.WatchOnUiAsync(Required<string>(args, "channelId"),
@@ -192,8 +211,8 @@ internal sealed class LocalControlHost(WebApplication app, InstallProfile profil
             case "get_auto_refresh": return control.GetAutoRefresh();
             case "set_auto_refresh": control.SetAutoRefresh(Required<int>(args, "minutes")); return control.GetAutoRefresh();
             case "get_sort": return control.GetSort();
-            case "get_about": return AppInformation.Current;
-            case "set_client_id": control.SetClientId(Provider(), Required<string>(args, "clientId")); break;
+            case "set_client_id": control.SetClientId(Provider(), Optional<string?>(args, "clientId"),
+                Optional<bool?>(args, "useBuiltIn") ?? false); break;
             case "open_client_id": control.OpenClientId(Provider()); break;
             case "close_client_id": control.CloseClientId(Provider()); break;
             case "connect": control.Start(Provider(), true); break;

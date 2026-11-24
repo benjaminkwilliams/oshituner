@@ -13,6 +13,8 @@
         <SolidColorBrush x:Key="PanelBackground" Color="#18181B" />
         <SolidColorBrush x:Key="MutedForeground" Color="#ADADB8" />
         <SolidColorBrush x:Key="AccentBrush" Color="#9147FF" />
+        <SolidColorBrush x:Key="WarningForeground" Color="#FFD766" />
+        <SolidColorBrush x:Key="ErrorForeground" Color="#FF8C8C" />
         <SolidColorBrush x:Key="LiveBrush" Color="#FF6666" />
         <SolidColorBrush x:Key="WatchBrush" Color="#8DE89D" />
         <SolidColorBrush x:Key="WatchingBrush" Color="#8AC8FF" />

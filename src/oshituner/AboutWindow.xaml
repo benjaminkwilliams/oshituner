@@ -8,6 +8,16 @@
         <TextBlock Text="{Binding Name}" FontSize="24" FontWeight="Bold" />
         <TextBlock Margin="0,4,0,4" Text="{Binding Version, StringFormat=App version {0}}" />
         <TextBlock Margin="0,0,0,14" Text="{Binding TwitchVersion, StringFormat=Twitch integration {0}}" />
+        <TextBlock Text="Browser extensions" FontWeight="Bold" />
+        <DataGrid x:Name="ExtensionGrid" Margin="0,4,0,12" Focusable="False">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Browser" Width="*" Binding="{Binding DisplayName}" />
+                <DataGridTextColumn Header="Status" Width="*" Binding="{Binding Status}" />
+                <DataGridTextColumn Header="Loaded version" Width="*" Binding="{Binding Version}" />
+            </DataGrid.Columns>
+        </DataGrid>
+        <TextBlock x:Name="LaunchSummary" TextWrapping="Wrap" />
+        <TextBlock x:Name="ProtocolSummary" Margin="0,4,0,12" TextWrapping="Wrap" />
         <TextBlock><Hyperlink Click="Repository_Click">GitHub repository</Hyperlink></TextBlock>
         <TextBlock Margin="0,16,0,4" Text="Donations" FontWeight="Bold" />
         <TextBlock x:Name="DonationAcknowledgment" Text="{Binding ThankYou}" TextWrapping="Wrap" />

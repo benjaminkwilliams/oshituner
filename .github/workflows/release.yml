@@ -35,7 +35,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Release tags must point to a commit on the official main branch.' }
       - name: Build self-contained installer
         shell: pwsh
-        run: ./scripts/Build-WindowsInstaller.ps1 -OutputDirectory "${env:RUNNER_TEMP}/oshi-release"
+        env:
+          OSHI_TWITCH_CLIENT_ID: ${{ vars.OSHI_TWITCH_CLIENT_ID }}
+        run: |
+          if (-not $env:OSHI_TWITCH_CLIENT_ID) { throw 'Configure the public OSHI_TWITCH_CLIENT_ID repository variable before releasing.' }
+          ./scripts/Build-WindowsInstaller.ps1 -OutputDirectory "${env:RUNNER_TEMP}/oshi-release"
       - name: Smoke-test installation and uninstallation
         shell: pwsh
         run: |
