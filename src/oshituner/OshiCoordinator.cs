@@ -116,12 +116,15 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                 "recovered" => "playback recovered",
                 _ => "playback recovery unconfirmed"
             };
-            log.Write("Twitch player", $"{browser.Browser}: {recovery.Login}: {result} after Error #1000.");
+            var phase = recovery.Phase == "attempted" ? "attempt" : "result";
+            log.Write("Twitch player", $"{browser.Browser}: {recovery.Login}: {result} after Error #1000.",
+                $"twitch-player:{browser.Browser}:{recovery.Id}:{phase}");
         }
         foreach (var pending in _pendingRecoveries.Where(entry => entry.Key.Browser == browser.Browser && entry.Value.Deadline <= Now).ToArray())
         {
             _pendingRecoveries.Remove(pending.Key);
-            log.Write("Twitch player", $"{browser.Browser}: {pending.Value.Login}: playback recovery unconfirmed after Error #1000.");
+            log.Write("Twitch player", $"{browser.Browser}: {pending.Value.Login}: playback recovery unconfirmed after Error #1000.",
+                $"twitch-player:{browser.Browser}:{pending.Key.Id}:result");
         }
         if (browser.Status == "ready")
         {

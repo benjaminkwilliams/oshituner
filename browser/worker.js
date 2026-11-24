@@ -77,7 +77,8 @@ chrome.runtime.onMessage?.addListener((message, sender) => {
   const valid = message.phase === "attempted" ? login && !attempted : attempted && attempted.tabId === sender.tab.id &&
     ["recovered", "unconfirmed"].includes(message.phase) && !recoveryEvents.some(event => event.id === message.id && event !== attempted);
   if (!valid) return;
-  recoveryEvents.push({ id: message.id, phase: message.phase, login: attempted?.login ?? login, tabId: sender.tab.id });
+  recoveryEvents.push({ id: message.id, phase: message.phase, login: attempted?.login ?? login, tabId: sender.tab.id,
+    receivedAt: Date.now() });
   if (recoveryEvents.length > 40) recoveryEvents.shift();
   ++recoveryRevision;
   scheduleTabChange();
@@ -106,7 +107,8 @@ async function managedCommand(request) {
     const extensionVersion = chrome.runtime.getManifest?.().version;
     return logins.length <= 500 && tabs.length <= maxManagedTabs
       ? { status: "complete", logins, managedTabs: tabs, windowCount: windows.length, extensionVersion,
-          recoveryEvents: recoveryEvents.map(({ id, phase, login }) => ({ id, phase, login })) }
+          recoveryEvents: recoveryEvents.filter(event => Date.now() - event.receivedAt <= 60_000)
+            .map(({ id, phase, login }) => ({ id, phase, login })) }
       : { status: "partial", logins: [] };
   }
 

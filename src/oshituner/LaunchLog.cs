@@ -6,7 +6,8 @@ using System.Text.Json.Serialization;
 
 namespace oshituner;
 
-internal sealed record LaunchLogEntry(DateTimeOffset Timestamp, string Category, string Message)
+internal sealed record LaunchLogEntry(DateTimeOffset Timestamp, string Category, string Message,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? EventId = null)
 {
     [JsonIgnore]
     public string Text => $"{Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture)}  [{Category}]  {Message}";
@@ -32,10 +33,11 @@ internal sealed class LaunchLog
     public string FilePath { get; }
     public ObservableCollection<LaunchLogEntry> Entries { get; } = [];
 
-    public void Write(string category, string message)
+    public void Write(string category, string message, string? eventId = null)
     {
         Prune();
-        var entry = new LaunchLogEntry(_clock.GetUtcNow(), category, message.Replace('\r', ' ').Replace('\n', ' '));
+        if (eventId is not null && Entries.Any(previous => previous.EventId == eventId)) return;
+        var entry = new LaunchLogEntry(_clock.GetUtcNow(), category, message.Replace('\r', ' ').Replace('\n', ' '), eventId);
         Add(entry);
         TryWrite(() => File.AppendAllText(FilePath, JsonSerializer.Serialize(entry, Json) + Environment.NewLine));
     }
