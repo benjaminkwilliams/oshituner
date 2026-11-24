@@ -7,6 +7,6 @@
             <Button Content="Copy log" Click="CopyLog_Click" HorizontalAlignment="Left" Margin="0,6,0,0" />
         </StackPanel>
         <ListBox x:Name="LogEntries" DisplayMemberPath="Text" AutomationProperties.Name="Application log"
-                 FontFamily="Consolas" ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                 FontFamily="Consolas" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.ScrollChanged="LogEntries_ScrollChanged" />
     </DockPanel>
 </UserControl>
