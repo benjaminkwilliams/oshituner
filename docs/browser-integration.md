@@ -22,7 +22,7 @@ Reload the unpacked extension after updating the application. The bridge only re
 
 ## Twitch player recovery
 
-When a Twitch channel player displays the English video download cancellation prompt with **Error #1000**, the extension clicks **Reload Player** in that tab. It makes one more attempt after 20 seconds if the same prompt persists. This recovery runs within the affected tab. **Windows > Log** records the reload attempt, then reports confirmed recovery when playback advances or marks recovery unconfirmed.
+When a Twitch channel player displays the English video download cancellation prompt with **Error #1000**, the extension clicks **Reload Player** in that tab. It makes one more attempt after 20 seconds if the same prompt persists. This recovery runs within the affected tab. **Windows > Log** records the reload attempt, then reports confirmed recovery when stream playback advances or marks recovery unconfirmed. Recovery leaves detected Twitch ad breaks alone. If a reload leads to an ad, the log marks recovery unconfirmed and Twitch continues playing the ad.
 
 ## Gifted channel discovery
 

@@ -1,5 +1,8 @@
 (() => {
   const playerSelector = '[data-a-target="video-player"], [data-test-selector="video-player"], .video-player';
+  const adSelector = '[data-a-target="video-ad-label"], [data-a-target="video-ad-countdown"], ' +
+    '[data-a-target="video-ad-overlay"], [data-test-selector="ad-banner-default-text"], [aria-label="Advertisement" i]';
+  const adBreakText = /\bis taking an ad break\s*;\s*stick around to support the stream\b/i;
   const controlSelector = 'button, [role="button"], a[href]';
   const nonChannelRoutes = new Set(["activate", "bits", "browse", "checkout", "creatorcamp", "dashboard",
     "directory", "downloads", "drops", "friends", "inventory", "login", "messages", "p", "popout",
@@ -26,6 +29,12 @@
     if (element.checkVisibility) return element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
     const style = getComputedStyle(element);
     return style.visibility === "visible" && style.opacity !== "0";
+  }
+
+  function adIsVisible() {
+    if ([...document.querySelectorAll(adSelector)].some(isVisible)) return true;
+    return [...document.querySelectorAll(playerSelector)].some(player => isVisible(player) &&
+      adBreakText.test(normalizedText((player.parentElement ?? player).innerText)));
   }
 
   function findReloadControl() {
@@ -56,18 +65,20 @@
       catch { /* The extension was reloaded during playback. */ }
     };
     report("attempted");
-    const deadline = performance.now() + 15_000;
+    const startedAt = performance.now();
+    const deadline = startedAt + 15_000;
     let previousVideo;
     let previousTime;
     function check() {
-      if (channelRoute() !== login || performance.now() >= deadline) {
+      if (channelRoute() !== login || performance.now() >= deadline || adIsVisible()) {
         report("unconfirmed");
         return;
       }
       const video = player.isConnected ? player.querySelector("video")
         : document.querySelectorAll(playerSelector)[0]?.querySelector("video");
       if (video && !video.paused && !video.seeking && video.readyState >= 2 &&
-          video === previousVideo && video.currentTime > previousTime + 0.1 && !findReloadControl()) {
+          video === previousVideo && video.currentTime > previousTime + 0.1 && !findReloadControl() &&
+          performance.now() - startedAt >= 2500) {
         report("recovered");
         return;
       }
@@ -87,6 +98,7 @@
       nextClick = 0;
     }
 
+    if (route && adIsVisible()) return;
     const control = route ? findReloadControl() : null;
     if (!control) {
       attempts = 0;
@@ -115,10 +127,12 @@
 
   function affectsPlayer(record) {
     const target = record.target instanceof Element ? record.target : record.target.parentElement;
-    if (target?.closest(playerSelector) || (record.type === "attributes" && target?.querySelector(playerSelector))) return true;
+    const watched = playerSelector + ", " + adSelector;
+    if (target?.closest(watched) || target?.parentElement?.querySelector(playerSelector) ||
+        (record.type === "attributes" && target?.querySelector(watched))) return true;
     for (const list of [record.addedNodes, record.removedNodes]) {
       for (const node of list) {
-        if (node instanceof Element && (node.matches(playerSelector) || node.querySelector(playerSelector))) return true;
+        if (node instanceof Element && (node.matches(watched) || node.querySelector(watched))) return true;
       }
     }
     return false;
