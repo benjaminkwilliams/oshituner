@@ -14,7 +14,7 @@ The optional installer setup can pair an unpaired browser. Use Settings to move 
 
 ## Watching Twitch
 
-The WATCH column shows **Watching** for a live channel with an open Twitch channel tab in either paired browser. Watching rows sort first. The browser icons appear on live rows without an open tab. Tab changes update the grid independently of Twitch auto-refresh. A selected Twitch channel can add a temporary row, which stays until the last tab for that channel closes. Choose an available Edge or Chrome icon to open a channel in a window that already has Twitch channel tabs. A new window opens when the paired browser is closed or has no channel tabs.
+The WATCH column shows **Watching** for a live channel with an open Twitch channel tab in either paired browser. Watching rows sort first. The browser icons appear on live rows without an open tab. Tab changes update the grid independently of Twitch auto-refresh. A selected Twitch channel can add a temporary row, which stays until the last tab for that channel closes. Choose an available Edge or Chrome icon to open a live channel in its own managed window. The per-browser limit counts managed tabs across every window in that browser, including tabs opened from Twitch Status. Oshi switches ranked streams in the same managed tab and window. To manage an existing stream, put it in a window with one Twitch channel tab, then right-click its Twitch Status row and choose **Manage open stream** for the paired browser.
 
 Reload the unpacked extension after updating the application. The bridge only reads Twitch channel tabs in the browser profile running the extension.
 
@@ -28,6 +28,6 @@ When the paired application requests discovery, the extension reads candidate Tw
 
 The native messaging protocol uses a version and request ID. Version 1 accepts `gift_channels` and replies with a status (`complete`, `partial`, `signed_out`, or `unavailable`) and a list of logins. Until the rendered page can establish completeness, the extension reports results with candidates as partial. A closed browser or a missing gift tab is unavailable. Native messaging registrations are browser-specific and allow only the matching extension ID. The already running app uses a current-user-only named pipe scoped to its installation.
 
-After pairing, the extension reconnects on browser startup and periodically while the browser is open. A browser that is paired to a different copy leaves the previous native host automatically. Check the paired path and that the browser has the extension loaded if the application cannot reach it.
+After pairing, the extension reconnects on browser startup and periodically while the browser runs. If you enable **Settings > Auto Launch**, it can wake the paired app to the system tray and start Oshi Watch after the configured cooldown. A browser that is paired to a different copy leaves the previous native host automatically. Check the paired path and that the browser has the extension loaded if the application cannot reach it.
 
 Local API clients can call `get_browser_pairings`, `set_browser_pairing`, `open_browser_integration` and `close_browser_integration` through JSON-RPC or MCP. Explicitly confirm with the user before passing `replace: true` to switch the paired installation.
