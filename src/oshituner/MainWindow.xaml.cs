@@ -110,7 +110,7 @@ public partial class MainWindow : Window
             AutoLaunchCooldown.Items.Add(item);
         }
         Closing += Window_Closing;
-        _ = DesktopTray.ObserveExitAsync(_profile, ExitDesktop, _lifetime.Token);
+        _ = DesktopTray.ObserveExitAsync(_profile, ExitDesktop, message => _log.Write("IPC", message), _lifetime.Token);
     }
 
     private void RenderOshi() => _oshiView.Render(_control.GetOshi(), _session.Channels, _session.CanRank);
@@ -154,15 +154,14 @@ public partial class MainWindow : Window
         _log.Write("Startup", "Browser tab monitoring started.");
         try
         {
-            var host = await LocalControlHost.StartAsync(_control, _profile, _session.PreferredPort, _lifetime.Token);
+            var host = await LocalControlHost.StartAsync(_control, _profile, message => _log.Write("IPC", message), _lifetime.Token);
             if (_lifetime.IsCancellationRequested)
             {
                 await host.DisposeAsync();
                 return;
             }
             _host = host;
-            _log.Write("Startup", $"Local API listening on loopback port {host.Port}.");
-            _session.RememberPort(host.Port);
+            _log.Write("Startup", "Local API listening on Windows named pipes.");
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException or CryptographicException)
@@ -257,7 +256,7 @@ public partial class MainWindow : Window
 
     private async Task ObserveWatchChangesAsync()
     {
-        try { await _session.ObserveWatchChangesAsync(UpdateWatchTabs, _lifetime.Token); }
+        try { await _session.ObserveWatchChangesAsync(UpdateWatchTabs, message => _log.Write("IPC", message), _lifetime.Token); }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (UnauthorizedAccessException) { ReportError("Could not receive browser tab changes."); }
     }

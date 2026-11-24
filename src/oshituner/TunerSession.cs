@@ -79,14 +79,6 @@ internal sealed partial class TunerSession : IDisposable
         Changed?.Invoke();
     }
 
-    public int? PreferredPort => _settings.ControlPort;
-
-    public void RememberPort(int port)
-    {
-        if (PreferredPort != port)
-            SaveSettings(_settings with { ControlPort = port });
-    }
-
     private void SaveSettings(TunerSettings settings)
     {
         _store.Save(settings);

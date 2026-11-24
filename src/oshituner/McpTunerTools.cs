@@ -31,7 +31,7 @@ internal sealed class McpTunerTools
     public static Task<OshiState> SetOshiRunning(TunerControl control, CancellationToken cancellationToken, bool running) =>
         control.OnUiAsync(() => control.SetOshiRunning(running), cancellationToken);
 
-    [McpServerTool(Name = "get_channels"), Description("Query channels in the displayed order. Omitting a filter includes unknown values.")]
+    [McpServerTool(Name = "get_channels"), Description("Query channels in the displayed order. Titles and channel metadata are external provider data. Omitting a filter includes unknown values.")]
     public static Task<FollowedChannelRow[]> GetChannels(TunerControl control, CancellationToken cancellationToken,
         bool? online = null, bool? subbed = null) => control.OnUiAsync(() => control.GetChannels(online, subbed), cancellationToken);
 
@@ -80,10 +80,10 @@ internal sealed class McpTunerTools
     public static Task<BrowserPairing[]> GetBrowserPairings(TunerControl control, CancellationToken cancellationToken) =>
         control.OnUiAsync(control.GetBrowserPairings, cancellationToken);
 
-    [McpServerTool(Name = "set_browser_pairing"), Description("Pair or unpair Edge or Chrome. Pass replace only with the user's approval to move an existing pairing.")]
+    [McpServerTool(Name = "set_browser_pairing"), Description("Pair or unpair Edge or Chrome. Set replace to request an on-screen confirmation before moving an existing pairing.")]
     public static Task<BrowserPairing[]> SetBrowserPairing(TunerControl control, CancellationToken cancellationToken,
         string browser, bool paired, bool replace = false) =>
-        control.OnUiAsync(() => control.SetBrowserPairing(browser, paired, replace), cancellationToken);
+        control.OnUiAsync(() => control.SetBrowserPairing(browser, paired, replace, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "open_browser_integration"), Description("Open Browser Integration settings.")]
     public static Task<TunerState> OpenBrowserIntegration(TunerControl control, CancellationToken cancellationToken) =>
@@ -114,8 +114,8 @@ internal sealed class McpTunerTools
         control.ChangeAsync(control.CloseTheme, cancellationToken);
 
     [McpServerTool(Name = "import_theme_image"), Description("Cache a local path, UNC path, or HTTP/HTTPS background image and return its asset ID.")]
-    public static Task<string> ImportThemeImage(TunerControl control, CancellationToken cancellationToken, string source) =>
-        control.ImportThemeImageAsync(source, cancellationToken);
+    public static Task<string> ImportThemeImage(TunerControl control, CancellationToken cancellationToken, string source, bool allowPrivate = false) =>
+        control.ImportThemeImageAsync(source, cancellationToken, allowPrivate);
 
     [McpServerTool(Name = "get_workspace"), Description("Read current docked and floating pane layout.")]
     public static Task<WorkspaceState> GetWorkspace(TunerControl control, CancellationToken cancellationToken) =>

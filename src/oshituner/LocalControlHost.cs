@@ -1,76 +1,92 @@
 using System.IO;
-using System.Net;
-using System.Security.Cryptography;
-using System.Text;
+using System.IO.Pipes;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.AspNetCore;
 
 namespace oshituner;
 
-internal sealed class LocalControlHost(WebApplication app, string key, string token) : IAsyncDisposable
+internal sealed class LocalControlHost(WebApplication app, InstallProfile profile, PipeRendezvous endpoint) : IAsyncDisposable
 {
+    internal const int MaxRpcBytes = 65_536;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public int Port => new Uri(app.Urls.Single()).Port;
     public string CodexConfiguration =>
-        $"[mcp_servers.oshi_tuner_{key[..12]}]\nurl = \"http://127.0.0.1:{Port}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {token}\" }}";
+        $"[mcp_servers.oshi_tuner_{profile.Key[..12]}]\ncommand = {JsonSerializer.Serialize(profile.ExecutablePath)}\nargs = [\"--mcp\"]";
+
+    internal const string ControlRole = "control";
+
+    internal static string PipeName(string name, bool mcp) => name + (mcp ? "-mcp" : "-rpc");
 
     public static async Task<LocalControlHost> StartAsync(TunerControl control, InstallProfile profile,
-        int? port, CancellationToken cancellationToken)
+        Action<string> diagnostic, CancellationToken cancellationToken)
     {
-        var token = ReadOrCreateToken(profile.PathFor("control.dat"));
-        if (port is > 0 and <= 65535)
+        // Migrating to Windows IPC invalidates the old network credential, including on rollback.
+        File.Delete(profile.PathFor("control.dat"));
+        File.Delete(profile.PathFor("control.dat.new"));
+
+        var endpoint = await PipeRendezvous.OpenAsync(profile, ControlRole, diagnostic, cancellationToken);
+        try
         {
-            try { return await StartAtAsync(control, profile.Key, token, port.Value, cancellationToken); }
-            catch (IOException) { /* Another process took the previous port. */ }
+            for (var attempt = 0; ; attempt++)
+            {
+                try { return await StartEndpointAsync(control, profile, endpoint, cancellationToken); }
+                catch (Exception exception) when (attempt < 2 && exception is (IOException or UnauthorizedAccessException))
+                {
+                    diagnostic($"Control IPC listener unavailable ({exception.GetType().Name}); retrying.");
+                    await Task.Delay(200, cancellationToken);
+                }
+            }
         }
-        return await StartAtAsync(control, profile.Key, token, 0, cancellationToken);
+        catch
+        {
+            endpoint.Dispose();
+            throw;
+        }
     }
 
-    private static async Task<LocalControlHost> StartAtAsync(TunerControl control, string key,
-        string token, int port, CancellationToken cancellationToken)
+    private static async Task<LocalControlHost> StartEndpointAsync(TunerControl control, InstallProfile profile,
+        PipeRendezvous endpoint, CancellationToken cancellationToken)
     {
+        var name = PipeRendezvous.NewName();
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
         builder.Logging.ClearProviders();
+        builder.WebHost.UseNamedPipes(options => options.CurrentUserOnly = true);
         builder.WebHost.ConfigureKestrel(server =>
         {
-            server.Listen(IPAddress.Loopback, port);
-            server.Limits.MaxRequestBodySize = 65_536;
+            server.Configure(new ConfigurationBuilder().Build());
+            server.ListenNamedPipe(PipeName(name, mcp: false));
+            server.ListenNamedPipe(PipeName(name, mcp: true), mcp => mcp.UseConnectionHandler<LocalMcpConnection>());
+            server.Limits.MaxRequestBodySize = MaxRpcBytes;
         });
         builder.Services.AddSingleton(control);
+        builder.Services.AddSingleton<LocalMcpConnection>();
         builder.Services.AddMcpServer(options =>
         {
             options.ServerInfo = new() { Name = "Oshi Tuner", Version = AppInformation.Current.Version };
-
         }).WithHttpTransport(options =>
         {
             options.SessionMode = HttpServerSessionMode.StatefulForInitializeClients;
         }).WithTools<McpTunerTools>();
 
         var app = builder.Build();
-        var expected = Encoding.UTF8.GetBytes("Bearer " + token);
         app.Use(async (context, next) =>
         {
-            if (context.Request.Host.Host != "127.0.0.1" || context.Request.Headers.ContainsKey("Origin"))
+            if (context.Connection.LocalIpAddress is not null || context.Connection.RemoteIpAddress is not null
+                || !string.Equals(context.Request.Host.Host, "localhost", StringComparison.OrdinalIgnoreCase)
+                || context.Request.Headers.ContainsKey("Origin"))
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                return;
-            }
-
-            var offered = Encoding.UTF8.GetBytes(context.Request.Headers.Authorization.ToString());
-            if (!CryptographicOperations.FixedTimeEquals(expected, offered))
-            {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                context.Response.Headers.WWWAuthenticate = "Bearer";
                 return;
             }
             await next(context);
@@ -80,24 +96,14 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
         try
         {
             await app.StartAsync(cancellationToken);
-            return new(app, key, token);
+            endpoint.Publish(name);
+            return new(app, profile, endpoint);
         }
         catch
         {
             await app.DisposeAsync();
             throw;
         }
-    }
-
-    private static string ReadOrCreateToken(string path)
-    {
-        if (File.Exists(path))
-            return Convert.ToHexString(ProtectedData.Unprotect(File.ReadAllBytes(path), null, DataProtectionScope.CurrentUser));
-        var token = RandomNumberGenerator.GetBytes(32);
-        var staging = path + ".new";
-        File.WriteAllBytes(staging, ProtectedData.Protect(token, null, DataProtectionScope.CurrentUser));
-        File.Move(staging, path);
-        return Convert.ToHexString(token);
     }
 
     private static async Task<IResult> DispatchAsync(HttpContext http, TunerControl control)
@@ -124,10 +130,11 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
             {
                 object result = method.GetString() switch
                 {
-                    "import_theme_image" => await control.ImportThemeImageAsync(Required<string>(args, "source"), http.RequestAborted),
+                    "import_theme_image" => await control.ImportThemeImageAsync(Required<string>(args, "source"),
+                        http.RequestAborted, Optional<bool?>(args, "allowPrivate") ?? false),
                     "watch_channel" => await control.WatchOnUiAsync(Required<string>(args, "channelId"),
                         Required<string>(args, "browser"), http.RequestAborted, Optional<bool?>(args, "existingOnly") ?? false),
-                    _ => await control.OnUiAsync(() => Execute(control, method.GetString()!, args), http.RequestAborted)
+                    _ => await control.OnUiAsync(() => Execute(control, method.GetString()!, args, http.RequestAborted), http.RequestAborted)
                 };
                 return id.HasValue ? Results.Json(new { jsonrpc = "2.0", id, result }, Json) : Results.NoContent();
             }
@@ -151,7 +158,7 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
         }
     }
 
-    private static object Execute(TunerControl control, string method, JsonElement args)
+    private static object Execute(TunerControl control, string method, JsonElement args, CancellationToken cancellationToken)
     {
         string Provider() => Optional<string?>(args, "provider") ?? "twitch";
 
@@ -167,7 +174,7 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
             case "get_channels": return control.GetChannels(Optional<bool?>(args, "online"), Optional<bool?>(args, "subbed"));
             case "get_browser_pairings": return control.GetBrowserPairings();
             case "set_browser_pairing": return control.SetBrowserPairing(Required<string>(args, "browser"),
-                Required<bool>(args, "paired"), Optional<bool?>(args, "replace") ?? false);
+                Required<bool>(args, "paired"), Optional<bool?>(args, "replace") ?? false, cancellationToken);
             case "open_browser_integration": control.OpenBrowserIntegration(); break;
             case "close_browser_integration": control.CloseBrowserIntegration(); break;
             case "get_theme": return control.GetTheme();
@@ -228,6 +235,10 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         try { await app.StopAsync(timeout.Token); }
-        finally { await app.DisposeAsync(); }
+        finally
+        {
+            try { await app.DisposeAsync(); }
+            finally { endpoint.Dispose(); }
+        }
     }
 }

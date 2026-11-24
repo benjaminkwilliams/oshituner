@@ -12,14 +12,13 @@ internal sealed class ThemeImages(InstallProfile profile)
 {
     private const int MaxInput = 32 * 1024 * 1024;
     private const long MaxDecoded = 224L * 1024 * 1024;
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
 
     public const string BuiltIn = "vtuber-4k";
 
     public static bool IsAssetId(string value) =>
         value == BuiltIn || value.Length == 64 && value.All(char.IsAsciiHexDigitLower);
 
-    public async Task<string> ImportAsync(string source, CancellationToken cancellationToken)
+    public async Task<string> ImportAsync(string source, CancellationToken cancellationToken, bool allowPrivate = false)
     {
         source = source.Trim();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -30,8 +29,7 @@ internal sealed class ThemeImages(InstallProfile profile)
             byte[] bytes;
             if (Uri.TryCreate(source, UriKind.Absolute, out var url) && url.Scheme is "http" or "https")
             {
-                if (url.UserInfo.Length != 0) throw new ArgumentException("Enter an image URL without embedded credentials.");
-                using var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
+                using var response = await ThemeImageHttp.GetAsync(url, allowPrivate, token);
                 response.EnsureSuccessStatusCode();
                 if (response.Content.Headers.ContentLength > MaxInput) throw new InvalidDataException("The image file is too large.");
                 await using var stream = await response.Content.ReadAsStreamAsync(token);
@@ -61,9 +59,10 @@ internal sealed class ThemeImages(InstallProfile profile)
         {
             throw new InvalidOperationException("The background image took too long to load.");
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException exception)
         {
-            throw new InvalidOperationException("Could not download the background image.");
+            throw new InvalidOperationException(exception.InnerException is InvalidOperationException policy
+                ? policy.Message : "Could not download the background image.");
         }
     }
 

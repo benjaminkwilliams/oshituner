@@ -17,8 +17,8 @@ internal sealed partial class TunerSession
     private bool _edgeAvailable;
     private bool _chromeAvailable;
 
-    public Task ObserveWatchChangesAsync(Action changed, CancellationToken token) =>
-        _browserDiscovery.ObserveWatchChangesAsync(changed, token);
+    public Task ObserveWatchChangesAsync(Action changed, Action<string> diagnostic, CancellationToken token) =>
+        _browserDiscovery.ObserveWatchChangesAsync(changed, diagnostic, token);
 
     public async Task WatchChannelAsync(string channelId, string browser, CancellationToken token, bool existingOnly = false)
     {

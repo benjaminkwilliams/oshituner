@@ -25,7 +25,7 @@ public partial class App : Application
                 MainWindow.Show();
             }
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             if (!remove)
                 MessageBox.Show("Could not open Browser Integration setup.", "Oshi Tuner", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -38,7 +38,8 @@ public partial class App : Application
         var target = BrowserRegistration.Targets.FirstOrDefault(browser => browser.Origin == origin.TrimEnd('/') + "/");
         try
         {
-            Shutdown(target is null ? 1 : await BrowserDiscovery.RunNativeHostAsync(new BrowserRegistration(new InstallProfile()), target));
+            Shutdown(target is null || target.FindExecutable() is not { } executable || !PipePeer.WasStartedBy(executable)
+                ? 1 : await BrowserDiscovery.RunNativeHostAsync(new BrowserRegistration(new InstallProfile()), target));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -49,6 +50,12 @@ public partial class App : Application
     private async void ExitRunningDesktop() =>
         Shutdown(await DesktopTray.RequestExitAsync(new InstallProfile()) ? 0 : 1);
 
+    private async void RunLocalControl(bool mcp)
+    {
+        try { Shutdown(await LocalControlBridge.RunAsync(new InstallProfile(), mcp)); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { Shutdown(1); }
+    }
+
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
     {
         if (MainWindow is MainWindow desktop) desktop.AllowSystemExit();
@@ -58,6 +65,11 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (e.Args is ["--mcp"] or ["--rpc"])
+        {
+            RunLocalControl(e.Args[0] == "--mcp");
+            return;
+        }
         if (e.Args is ["--exit"])
         {
             ExitRunningDesktop();

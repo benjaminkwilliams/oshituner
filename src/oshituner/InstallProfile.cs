@@ -8,6 +8,7 @@ namespace oshituner;
 internal sealed class InstallProfile
 {
     public string InstallFolder { get; }
+    public string ExecutablePath => Path.Combine(InstallFolder, "oshituner.exe");
     public string Key { get; }
     public string DirectoryPath { get; }
     public string LegacyTokenPath { get; }
@@ -57,6 +58,6 @@ internal sealed class SettingsStore(InstallProfile profile)
     }
 }
 
-internal sealed record TunerSettings(string? TwitchClientId = null, GridSort? Sort = null, int? ControlPort = null,
+internal sealed record TunerSettings(string? TwitchClientId = null, GridSort? Sort = null,
     int? AutoRefreshMinutes = null, Dictionary<string, TwitchChannel[]>? RememberedTwitchGifts = null, WorkspaceState? Workspace = null, ThemeSettings? Theme = null,
     [property: System.Text.Json.Serialization.JsonConverter(typeof(OshiSettingsConverter))] OshiSettings? Oshi = null);

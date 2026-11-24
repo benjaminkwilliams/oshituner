@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Windows;
 using Microsoft.Win32;
 
 namespace oshituner;
@@ -12,7 +13,11 @@ internal sealed class BrowserRegistration(InstallProfile profile)
         new("chrome", "Google Chrome", @"Google\Chrome", "hnomfkgbacjeiocjcgbnnoaaloleefjf")
     ];
 
+    private const string SuspendedManifestValue = "OshiTunerUpgradeManifest";
+    private bool _replacementPending;
+
     public string InstallKey => profile.Key;
+    public string ExecutablePath => profile.ExecutablePath;
 
     public void RequestDesktopWake(BrowserTarget target)
     {
@@ -21,21 +26,43 @@ internal sealed class BrowserRegistration(InstallProfile profile)
 
     public BrowserPairing[] GetPairings() => Targets.Select(target =>
     {
-        var registered = ReadManifest(target);
+        var stateNow = ReadRegistration(target);
+        var registered = stateNow.Suspended ?? stateNow.Active;
         var state = registered is null ? "unpaired" : Owns(registered, target) ? "paired_here" : "paired_elsewhere";
         return new BrowserPairing(target.Id, target.DisplayName, state,
             registered is null ? null : Path.GetDirectoryName(registered) == profile.DirectoryPath
                 ? profile.InstallFolder : ReadOwner(registered));
     }).ToArray();
 
-    public void Pair(BrowserTarget target, bool replace)
+    public void Pair(BrowserTarget target, bool requestReplacement = false, Window? owner = null,
+        CancellationToken cancellationToken = default)
     {
-        using var gate = AcquireGate(target);
-        var previous = ReadManifest(target);
-        if (previous is not null && !Owns(previous, target) && !replace)
-            throw new InvalidOperationException($"{target.DisplayName} is already paired with another copy of Oshi Tuner.");
+        cancellationToken.ThrowIfCancellationRequested();
+        var previous = ReadRegistration(target);
+        EnsureUpgradeIsIdle(previous);
+        if (previous.Active is { } existing && !Owns(existing, target))
+        {
+            if (!requestReplacement)
+                throw new InvalidOperationException($"{target.DisplayName} is already paired with another copy of Oshi Tuner.");
+            if (_replacementPending)
+                throw new InvalidOperationException("A browser pairing confirmation is already open.");
+            _replacementPending = true;
+            try
+            {
+                if (!BrowserPairingApproval.Confirm(target.DisplayName, ReadOwner(existing), profile.InstallFolder, owner, cancellationToken))
+                    throw new InvalidOperationException("The browser pairing change was not approved.");
+            }
+            finally { _replacementPending = false; }
+        }
 
-        var executable = Path.Combine(profile.InstallFolder, "oshituner.exe");
+        using var gate = AcquireGate(target);
+        cancellationToken.ThrowIfCancellationRequested();
+        var current = ReadRegistration(target);
+        EnsureUpgradeIsIdle(current);
+        if (!string.Equals(previous.Active, current.Active, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The browser pairing changed while the request was pending. Try again.");
+
+        var executable = profile.ExecutablePath;
         if (!File.Exists(executable))
             throw new InvalidOperationException("The Oshi Tuner executable is missing from this installation.");
         var manifest = new
@@ -57,17 +84,19 @@ internal sealed class BrowserRegistration(InstallProfile profile)
     public bool Unpair(BrowserTarget target)
     {
         using var gate = AcquireGate(target);
-        if (ReadManifest(target) is not { } current || !Owns(current, target)) return false;
+        var registration = ReadRegistration(target);
+        EnsureUpgradeIsIdle(registration);
+        if (registration.Active is not { } current || !Owns(current, target)) return false;
         Registry.CurrentUser.DeleteSubKey(target.RegistryPath, throwOnMissingSubKey: false);
         return true;
     }
 
     public bool IsPairedHere(BrowserTarget target) =>
-        ReadManifest(target) is { } current && Owns(current, target);
+        ReadRegistration(target).Active is { } current && Owns(current, target);
 
-    public string WatchSignalPipeName => $"oshituner-{profile.Key}-watch";
-
-    public string PipeName(BrowserTarget target) => $"oshituner-{profile.Key}-{target.Id}-browser";
+    internal InstallProfile Profile => profile;
+    internal const string WatchSignalRole = "watch";
+    internal static string BrowserRole(BrowserTarget target) => $"browser-{target.Id}";
 
     public static BrowserTarget GetTarget(string id) =>
         Targets.FirstOrDefault(target => target.Id == id)
@@ -80,10 +109,18 @@ internal sealed class BrowserRegistration(InstallProfile profile)
             FileAccess.ReadWrite, FileShare.None);
     }
 
-    private static string? ReadManifest(BrowserTarget target)
+    private sealed record Registration(string? Active, string? Suspended);
+
+    private static Registration ReadRegistration(BrowserTarget target)
     {
         using var key = Registry.CurrentUser.OpenSubKey(target.RegistryPath);
-        return key?.GetValue("") as string;
+        return new(key?.GetValue("") as string, key?.GetValue(SuspendedManifestValue) as string);
+    }
+
+    private static void EnsureUpgradeIsIdle(Registration registration)
+    {
+        if (registration.Suspended is not null)
+            throw new InvalidOperationException("This browser pairing is paused for an Oshi Tuner upgrade. Try again after setup finishes.");
     }
 
     private bool Owns(string path, BrowserTarget target) =>

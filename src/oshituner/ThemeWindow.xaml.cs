@@ -149,17 +149,18 @@ public partial class ThemeWindow : Window
     private async void Load_Click(object sender, RoutedEventArgs e)
     {
         if (Uri.TryCreate(ImageUrl.Text.Trim(), UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
-            await ImportAsync(uri.AbsoluteUri);
+            await ImportAsync(uri.AbsoluteUri, AllowPrivateImageUrl.IsChecked == true);
         else Feedback.Text = "Enter an HTTP or HTTPS image URL.";
     }
 
-    private async Task ImportAsync(string source)
+    private async Task ImportAsync(string source, bool allowPrivate = false)
     {
+        AllowPrivateImageUrl.IsChecked = false;
         LoadButton.IsEnabled = BrowseButton.IsEnabled = BuiltInButton.IsEnabled = false;
         Feedback.Text = "Caching image…";
         try
         {
-            _imageId = await _theme.Images.ImportAsync(source, _lifetime.Token);
+            _imageId = await _theme.Images.ImportAsync(source, _lifetime.Token, allowPrivate);
             BackgroundChoice.SelectedItem = ThemeBackgroundType.Image;
             Feedback.Text = "Image cached. Apply to use it in the workspace.";
             RefreshPreview();

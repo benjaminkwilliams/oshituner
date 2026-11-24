@@ -66,12 +66,16 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
             Channel: channel, TabCap: cap);
         var reply = await QueryAsync(target, "oshi_mutate", login, cancellationToken, mutation);
         cancellationToken.ThrowIfCancellationRequested();
-        if (reply is null && !existingOnly && cap > 0 && TryLaunchForOshi(browser))
+        var startedBrowser = reply is null && !existingOnly && cap > 0 &&
+            TryLaunchPairedBrowser(target, "https://www.twitch.tv/" + login);
+        if (startedBrowser)
         {
-            for (var attempt = 0; attempt < 10 && reply is null; attempt++)
+            // The browser already owns the startup tab. A retry may adopt it but must not open another window.
+            var adoption = mutation with { Action = "adopt" };
+            for (var attempt = 0; attempt < 10 && (reply is null || reply.Reason == "missing"); attempt++)
             {
                 await Task.Delay(250, cancellationToken);
-                reply = await QueryAsync(target, "oshi_mutate", login, cancellationToken, mutation);
+                reply = await QueryAsync(target, "oshi_mutate", login, cancellationToken, adoption);
             }
         }
 
@@ -83,16 +87,16 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
             "duplicate" => $"Close extra copies of this stream in {target.DisplayName} before managing it.",
             "shared_window" => "Move the stream into its own browser window before managing it.",
             "owned_elsewhere" => "That stream tab belongs to another Oshi Tuner installation.",
+            _ when startedBrowser => $"Opened the stream in {target.DisplayName}, but Oshi Tuner could not manage its tab. Check the paired extension.",
             _ => $"Could not manage the stream. Reload the Oshi Tuner extension in the paired {target.DisplayName} profile."
         });
     }
 
-    public bool TryLaunchForOshi(string browser)
-    {
-        var target = BrowserRegistration.GetTarget(browser);
-        // Let the paired extension open and mark the Twitch tab after the browser starts.
-        return registration.IsPairedHere(target) && TryOpenBrowserWithoutWindows(target, "about:blank");
-    }
+    public bool TryLaunchForOshi(string browser) =>
+        TryLaunchPairedBrowser(BrowserRegistration.GetTarget(browser), "about:blank");
+
+    private bool TryLaunchPairedBrowser(BrowserTarget target, string address) =>
+        registration.IsPairedHere(target) && TryOpenBrowserWithoutWindows(target, address);
 
     private static bool TryOpenBrowserWithoutWindows(BrowserTarget target, string address)
     {
@@ -113,19 +117,25 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         }
     }
 
-    public async Task ObserveWatchChangesAsync(Action changed, CancellationToken token)
+    public async Task ObserveWatchChangesAsync(Action changed, Action<string> diagnostic, CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
             try
             {
-                using var signal = new NamedPipeServerStream(registration.WatchSignalPipeName, PipeDirection.In, 1,
-                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-                await signal.WaitForConnectionAsync(token);
-                changed();
+                using var endpoint = new PipeRendezvous(registration.Profile, BrowserRegistration.WatchSignalRole);
+                while (!token.IsCancellationRequested)
+                {
+                    using var signal = endpoint.Bind();
+                    await signal.WaitForConnectionAsync(token);
+                    if (!PipePeer.IsClient(signal, registration.ExecutablePath)) continue;
+                    await signal.WriteAsync(new byte[] { 1 }, token);
+                    changed();
+                }
             }
-            catch (IOException)
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
+                diagnostic($"Browser watch IPC unavailable ({exception.GetType().Name}); retrying.");
                 await Task.Delay(1000, token);
             }
         }
@@ -141,9 +151,9 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         timeout.CancelAfter(TimeSpan.FromSeconds(3));
         try
         {
-            using var pipe = new NamedPipeClientStream(".", registration.PipeName(target), PipeDirection.InOut,
-                PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-            await pipe.ConnectAsync(250, timeout.Token).ConfigureAwait(false);
+            using var pipe = await PipeRendezvous.ConnectAsync(registration.Profile, BrowserRegistration.BrowserRole(target),
+                250, timeout.Token).ConfigureAwait(false);
+            if (pipe is null) return null;
             var id = Guid.NewGuid().ToString("N");
             var scope = method.StartsWith("oshi_", StringComparison.Ordinal) ? registration.InstallKey : null;
             await WriteFrameAsync(pipe, new { version = Version, id, method, login, scope, mutation }, timeout.Token).ConfigureAwait(false);
@@ -182,32 +192,56 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
             var watchSupported = 0;
             void EnableWatch(int capabilities) => Interlocked.Exchange(ref watchSupported, capabilities);
             var read = ReadBrowserReplyAsync(input, registration, target, EnableWatch, lifetime.Token);
-            while (registration.IsPairedHere(target))
+            using var endpoint = await PipeRendezvous.OpenAsync(registration.Profile, BrowserRegistration.BrowserRole(target),
+                message => Console.Error.WriteLine($"{target.DisplayName}: {message}"), lifetime.Token).ConfigureAwait(false);
+            while (registration.IsPairedHere(target) && !read.IsCompleted)
             {
-                using var pipe = new NamedPipeServerStream(registration.PipeName(target), PipeDirection.InOut, 1,
-                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                NamedPipeServerStream listener;
+                try { listener = endpoint.Bind(); }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    Console.Error.WriteLine($"{target.DisplayName} native IPC listener unavailable ({exception.GetType().Name}); retrying.");
+                    await Task.Delay(1000, lifetime.Token).ConfigureAwait(false);
+                    continue;
+                }
+                using var pipe = listener;
                 var connection = pipe.WaitForConnectionAsync(lifetime.Token);
                 if (!await WaitForRegisteredConnectionAsync(connection, read, registration, target, lifetime.Token).ConfigureAwait(false))
                     break;
                 await connection.ConfigureAwait(false);
+                if (!PipePeer.IsClient(pipe, registration.ExecutablePath)) continue;
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                deadline.CancelAfter(TimeSpan.FromSeconds(4));
+                byte[]? request;
+                BrowserRequest command;
                 try
                 {
-                    using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-                    requestTimeout.CancelAfter(TimeSpan.FromSeconds(4));
-                    var request = await ReadFrameAsync(pipe, requestTimeout.Token).ConfigureAwait(false);
+                    request = await ReadFrameAsync(pipe, deadline.Token).ConfigureAwait(false);
                     if (request is null || !registration.IsPairedHere(target)) continue;
-                    if (UnavailableBrowserReply(request, Volatile.Read(ref watchSupported)) is { } unavailable)
-                    {
-                        await WriteFrameAsync(pipe, unavailable, requestTimeout.Token).ConfigureAwait(false);
-                        continue;
-                    }
-                    await WriteFrameBytesAsync(output, request, requestTimeout.Token).ConfigureAwait(false);
-                    var response = await read.WaitAsync(requestTimeout.Token).ConfigureAwait(false);
-                    if (response is null) break;
-                    read = ReadBrowserReplyAsync(input, registration, target, EnableWatch, lifetime.Token);
-                    await WriteFrameBytesAsync(pipe, response, requestTimeout.Token).ConfigureAwait(false);
+                    command = ParseBrowserRequest(request, registration.InstallKey);
                 }
-                catch (IOException) when (!read.IsCompleted) { }
+                catch (Exception exception) when (exception is IOException or JsonException
+                    || exception is OperationCanceledException && !lifetime.IsCancellationRequested) { continue; }
+
+                byte[] response;
+                if (RequiredCapability(command.Method) > Volatile.Read(ref watchSupported))
+                {
+                    response = JsonSerializer.SerializeToUtf8Bytes(new BrowserReply(Version, command.Id, "unavailable", []), Json);
+                }
+                else
+                {
+                    await WriteFrameBytesAsync(output, request, deadline.Token).ConfigureAwait(false);
+                    var reply = await read.WaitAsync(deadline.Token).ConfigureAwait(false);
+                    if (reply is null) break;
+                    var identity = JsonSerializer.Deserialize<BrowserReply>(reply, Json);
+                    if (identity is null || identity.Id != command.Id || identity.Version != Version)
+                        throw new IOException("Unexpected browser reply.");
+                    response = reply;
+                    read = ReadBrowserReplyAsync(input, registration, target, EnableWatch, lifetime.Token);
+                }
+                try { await WriteFrameBytesAsync(pipe, response, deadline.Token).ConfigureAwait(false); }
+                catch (Exception exception) when (exception is IOException
+                    || exception is OperationCanceledException && !lifetime.IsCancellationRequested) { }
             }
             return 0;
         }
@@ -240,30 +274,43 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try
         {
-            using (var pipe = new NamedPipeClientStream(".", registration.PipeName(target), PipeDirection.InOut,
-                PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly))
-                await pipe.ConnectAsync(300, timeout.Token).ConfigureAwait(false);
+            using (await PipeRendezvous.ConnectAsync(registration.Profile, BrowserRegistration.BrowserRole(target),
+                300, timeout.Token).ConfigureAwait(false)) { }
             await Task.Delay(250, timeout.Token).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is IOException or TimeoutException or OperationCanceledException) { }
+        catch (Exception exception) when (exception is IOException or TimeoutException or OperationCanceledException or UnauthorizedAccessException) { }
     }
 
-    private static BrowserReply? UnavailableBrowserReply(byte[] frame, int capabilities)
+    private static BrowserRequest ParseBrowserRequest(byte[] frame, string installKey)
     {
         using var request = JsonDocument.Parse(frame);
         var root = request.RootElement;
-        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("method", out var method)
-            || method.ValueKind != JsonValueKind.String
-            || method.GetString() switch
-            {
-                "watch_channels" or "open_watch_channel" => capabilities >= 1,
-                "oshi_tabs" or "oshi_mutate" => capabilities >= 2,
-                _ => true
-            }
-            || !root.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String)
-            return null;
-        return new(Version, id.GetString()!, "unavailable", []);
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("version", out var version)
+            || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var number) || number != Version
+            || !root.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String
+            || !Guid.TryParseExact(id.GetString(), "N", out _)
+            || !root.TryGetProperty("method", out var method) || method.ValueKind != JsonValueKind.String)
+            throw new JsonException("Invalid browser request.");
+        var name = method.GetString()!;
+        _ = RequiredCapability(name);
+        if (name.StartsWith("oshi_", StringComparison.Ordinal) &&
+            (!root.TryGetProperty("scope", out var scope) || scope.ValueKind != JsonValueKind.String || scope.GetString() != installKey))
+            throw new JsonException("Invalid browser request installation.");
+        if (root.TryGetProperty("login", out var login) && login.ValueKind != JsonValueKind.Null &&
+            (login.ValueKind != JsonValueKind.String || !TwitchLogin().IsMatch(login.GetString()!)))
+            throw new JsonException("Invalid browser request channel.");
+        return new(id.GetString()!, name);
     }
+
+    private static int RequiredCapability(string method) => method switch
+    {
+        "gift_channels" => 0,
+        "watch_channels" or "open_watch_channel" => 1,
+        "oshi_tabs" or "oshi_mutate" => 2,
+        _ => throw new JsonException("Unknown browser request.")
+    };
+
+    private sealed record BrowserRequest(string Id, string Method);
 
     private static async Task<byte[]?> ReadBrowserReplyAsync(Stream input, BrowserRegistration registration,
         BrowserTarget target, Action<int> enableWatch, CancellationToken token)
@@ -292,11 +339,14 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
     {
         try
         {
-            using var signal = new NamedPipeClientStream(".", registration.WatchSignalPipeName, PipeDirection.Out,
-                PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-            await signal.ConnectAsync(100).ConfigureAwait(false);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+            using var signal = await PipeRendezvous.ConnectAsync(registration.Profile, BrowserRegistration.WatchSignalRole,
+                100, timeout.Token).ConfigureAwait(false);
+            if (signal is null) return;
+            await signal.ReadAsync(new byte[1], timeout.Token).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException) { }
+        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException
+            or OperationCanceledException) { }
     }
 
     private static async Task<byte[]?> ReadFrameAsync(Stream stream, CancellationToken token)

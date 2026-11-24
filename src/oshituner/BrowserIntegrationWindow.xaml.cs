@@ -46,15 +46,7 @@ public partial class BrowserIntegrationWindow : Window
             var target = BrowserRegistration.GetTarget(browser);
             if (pair)
             {
-                var previous = _registration.GetPairings().Single(pairing => pairing.Browser == browser);
-                if (previous.State == "paired_elsewhere")
-                {
-                    if (_installerSetup) throw new InvalidOperationException("Switch the existing pairing in Browser Integration settings.");
-                    var choice = MessageBox.Show(this, $"Move {target.DisplayName} from {previous.InstallPath} to this installation?",
-                        Title, MessageBoxButton.YesNo, MessageBoxImage.Question);
-                    if (choice != MessageBoxResult.Yes) return;
-                }
-                _registration.Pair(target, replace: previous.State == "paired_elsewhere");
+                _registration.Pair(target, requestReplacement: !_installerSetup, owner: this);
             }
             else
                 _registration.Unpair(target);

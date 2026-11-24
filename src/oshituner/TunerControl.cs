@@ -130,10 +130,11 @@ internal sealed class TunerControl(
 
     public BrowserPairing[] GetBrowserPairings() => browsers.GetPairings();
 
-    public BrowserPairing[] SetBrowserPairing(string browser, bool paired, bool replace = false)
+    public BrowserPairing[] SetBrowserPairing(string browser, bool paired, bool replace, CancellationToken cancellationToken)
     {
         var target = BrowserRegistration.GetTarget(browser);
-        if (paired) browsers.Pair(target, replace);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (paired) browsers.Pair(target, replace, cancellationToken: cancellationToken);
         else browsers.Unpair(target);
         return GetBrowserPairings();
     }
@@ -146,7 +147,8 @@ internal sealed class TunerControl(
     public ThemeSettings ResetTheme() => SetTheme(new());
     public void OpenTheme() => openTheme();
     public void CloseTheme() => closeTheme();
-    public Task<string> ImportThemeImageAsync(string source, CancellationToken token) => theme.Images.ImportAsync(source, token);
+    public Task<string> ImportThemeImageAsync(string source, CancellationToken token, bool allowPrivate = false) =>
+        theme.Images.ImportAsync(source, token, allowPrivate);
 
     public WorkspaceState GetWorkspace() => workspace.Snapshot();
     public void OpenPane(string id) => workspace.Open(id);
