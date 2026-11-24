@@ -41,17 +41,24 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         }));
 
     public Task<OshiBrowserSnapshot[]> GetOshiTabsAsync(CancellationToken token) =>
-        Task.WhenAll(BrowserRegistration.Targets.Select(async target =>
-        {
-            var reply = await QueryAsync(target, "oshi_tabs", null, token);
-            return reply is { Status: "complete", ManagedTabs: { Length: <= 500 } tabs } &&
-                tabs.Select(tab => tab?.TabId).Distinct().Count() == tabs.Length &&
-                tabs.All(tab => tab is not null && tab.TabId >= 0 && Guid.TryParseExact(tab.Revision, "N", out _) &&
-                    tab.Login is not null && reply.Logins.Contains(tab.Login, StringComparer.OrdinalIgnoreCase))
-                ? new OshiBrowserSnapshot(target.Id, "ready", reply.Logins, tabs)
-                : new OshiBrowserSnapshot(target.Id, !registration.IsPairedHere(target) ? "unpaired"
-                    : reply?.Status == "unavailable" ? "update extension" : "browser unavailable", [], []);
-        }));
+        Task.WhenAll(BrowserRegistration.Targets.Select(target => GetOshiTabsAsync(target, token)));
+
+    public async Task<OshiBrowserSnapshot> GetOshiTabsAsync(BrowserTarget target, CancellationToken token)
+    {
+        var reply = await QueryAsync(target, "oshi_tabs", null, token);
+        var recoveries = reply?.RecoveryEvents is { Length: <= 40 } events
+            ? events.Where(item => item is not null && Guid.TryParseExact(item.Id, "N", out _) &&
+                item.Phase is "attempted" or "recovered" or "unconfirmed" &&
+                item.Login is not null && TwitchLogin().IsMatch(item.Login)).ToArray() : [];
+        return reply is { Status: "complete", ManagedTabs: { Length: <= 500 } tabs } &&
+            tabs.Select(tab => tab?.TabId).Distinct().Count() == tabs.Length &&
+            tabs.All(tab => tab is not null && tab.TabId >= 0 && Guid.TryParseExact(tab.Revision, "N", out _) &&
+                tab.Login is not null && reply.Logins.Contains(tab.Login, StringComparer.OrdinalIgnoreCase))
+            ? new(target.Id, "ready", reply.Logins, tabs, reply.WindowCount is >= 0 ? reply.WindowCount : null,
+                reply.ExtensionVersion is { Length: <= 24 } version && System.Version.TryParse(version, out _) ? version : null, recoveries)
+            : new(target.Id, !registration.IsPairedHere(target) ? "unpaired"
+                : reply?.Status == "unavailable" ? "update extension" : "browser unavailable", [], []);
+    }
 
     public async Task<bool> ApplyOshiMutationAsync(string browser, string? login, OshiBrowserMutation mutation,
         CancellationToken token) => await QueryAsync(BrowserRegistration.GetTarget(browser), "oshi_mutate",
@@ -67,11 +74,11 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         var reply = await QueryAsync(target, "oshi_mutate", login, cancellationToken, mutation);
         cancellationToken.ThrowIfCancellationRequested();
         var startedBrowser = reply is null && !existingOnly && cap > 0 &&
-            TryLaunchPairedBrowser(target, "https://www.twitch.tv/" + login);
+            TryLaunchPairedBrowser(target, StartupAddress(login, mutation.Assignment));
         if (startedBrowser)
         {
             // The browser already owns the startup tab. A retry may adopt it but must not open another window.
-            var adoption = mutation with { Action = "adopt" };
+            var adoption = mutation with { Action = "adopt_startup" };
             for (var attempt = 0; attempt < 10 && (reply is null || reply.Reason == "missing"); attempt++)
             {
                 await Task.Delay(250, cancellationToken);
@@ -92,8 +99,10 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         });
     }
 
-    public bool TryLaunchForOshi(string browser) =>
-        TryLaunchPairedBrowser(BrowserRegistration.GetTarget(browser), "about:blank");
+    public bool TryLaunchForOshi(string browser, string login, string assignment) => TwitchLogin().IsMatch(login) &&
+        TryLaunchPairedBrowser(BrowserRegistration.GetTarget(browser), StartupAddress(login, assignment));
+
+    private static string StartupAddress(string login, string assignment) => $"https://www.twitch.tv/{login}#oshi-start={assignment}";
 
     private bool TryLaunchPairedBrowser(BrowserTarget target, string address) =>
         registration.IsPairedHere(target) && TryOpenBrowserWithoutWindows(target, address);
@@ -374,12 +383,15 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
     }
 
     private sealed record BrowserReply(int Version, string Id, string Status, string[] Logins, string[]? ActiveLogins = null,
-        OshiBrowserTab[]? ManagedTabs = null, string? Reason = null);
+        OshiBrowserTab[]? ManagedTabs = null, string? Reason = null, int? WindowCount = null, string? ExtensionVersion = null,
+        BrowserRecoveryEvent[]? RecoveryEvents = null);
 }
 
 internal sealed record BrowserGiftResult(string Status, string[] Logins);
 internal sealed record BrowserWatchSnapshot(string Browser, bool Available, string[] Logins, string[] ActiveLogins);
 internal sealed record OshiBrowserTab(int TabId, string Login, string Revision, OshiChannelKey? Channel = null);
-internal sealed record OshiBrowserSnapshot(string Browser, string Status, string[] Logins, OshiBrowserTab[] Tabs);
+internal sealed record OshiBrowserSnapshot(string Browser, string Status, string[] Logins, OshiBrowserTab[] Tabs, int? WindowCount = null,
+    string? ExtensionVersion = null, BrowserRecoveryEvent[]? RecoveryEvents = null);
+internal sealed record BrowserRecoveryEvent(string Id, string Phase, string Login);
 internal sealed record OshiBrowserMutation(string Action, string Assignment, int? TabId = null, string? Revision = null,
     string? ExpectedLogin = null, OshiChannelKey? Channel = null, int? TabCap = null, bool FocusOnOpen = false);

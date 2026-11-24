@@ -1,8 +1,9 @@
 namespace oshituner;
 
 internal sealed record OshiTurn(string Revision, string? StreamId, DateTimeOffset Since);
+internal sealed record OshiRankSkip(string Channel, string Rank, string CompetingChannel, string CompetingRank, string Reason);
 internal sealed record OshiDecision(string? Action, OshiLiveChannel? Channel, OshiBrowserTab? Tab, string Reason,
-    DateTimeOffset? Next = null, DateTimeOffset? FallbackSince = null);
+    DateTimeOffset? Next = null, DateTimeOffset? FallbackSince = null, OshiRankSkip[]? RankSkips = null);
 
 internal static class OshiPlanner
 {
@@ -53,6 +54,7 @@ internal static class OshiPlanner
             .ThenBy(channel => channel.Channel.Provider, StringComparer.Ordinal)
             .ThenBy(channel => channel.Channel.Id, StringComparer.Ordinal);
         DateTimeOffset? next = null;
+        var rankSkips = new List<OshiRankSkip>();
         foreach (var channel in ranked)
         {
             if (slots.Length < cap) return new("open", channel, null, "Ranked channel is live");
@@ -62,9 +64,18 @@ internal static class OshiPlanner
             var wentLive = channel.StartedAt ?? channel.FirstObservedLive;
             var peer = slots.Where(slot => slot.Rank == priority && slot.Channel?.Online == true && wentLive > slot.Since)
                 .OrderBy(slot => slot.MinimumWatchUntil).FirstOrDefault();
-            if (peer.Tab is null) continue;
+            if (peer.Tab is null)
+            {
+                var blocker = slots[0];
+                var reason = blocker.Rank < priority ? "it has higher rank" : "the same-rank channel did not go live during this watch";
+                rankSkips.Add(new(channel.Login!, settings.Ranks[priority].GridName(priority), blocker.Tab.Login,
+                    settings.Ranks[blocker.Rank].GridName(blocker.Rank), reason));
+                continue;
+            }
             var due = peer.MinimumWatchUntil;
             if (due <= now) return new("switch", channel, peer.Tab, "Same-rank channel went live");
+            rankSkips.Add(new(channel.Login!, settings.Ranks[priority].GridName(priority), peer.Tab.Login,
+                settings.Ranks[priority].GridName(priority), "minimum watch time has not elapsed"));
             if (next is null || due < next) next = due;
         }
 
@@ -72,7 +83,7 @@ internal static class OshiPlanner
             channels.Any(channel => rank.ContainsKey(channel.Channel) && channel.Online != false &&
             channel.Login is { } login && open.Contains(login));
         if (watchingRanked)
-            return new(null, null, null, next.HasValue ? "Waiting for minimum watch time" : "Keep current tabs", next);
+            return new(null, null, null, next.HasValue ? "Waiting for minimum watch time" : "Keep current tabs", next, RankSkips: rankSkips.ToArray());
 
         var fallback = candidates.Where(channel => channel.FallbackEligible && !anyRank.Contains(channel.Channel) &&
             !(watchingElsewhere?.Contains(channel.Login!) ?? false))

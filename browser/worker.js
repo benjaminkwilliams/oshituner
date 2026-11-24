@@ -66,6 +66,22 @@ const managedTabKey = "oshiManagedTabs";
 const identifier = /^[a-f0-9]{32}$/;
 const maxManagedTabs = 50;
 let managedCommands = Promise.resolve();
+const recoveryEvents = [];
+let recoveryRevision = 0;
+chrome.runtime.onMessage?.addListener((message, sender) => {
+  if (message?.type !== "player_recovery" || sender.id !== chrome.runtime.id || sender.frameId !== 0 ||
+      !Number.isInteger(sender.tab?.id) || typeof message.id !== "string" || !identifier.test(message.id)) return;
+  if (sender.origin !== "https://www.twitch.tv") return;
+  const login = channelLogin({ url: sender.tab.url ?? sender.url });
+  const attempted = recoveryEvents.find(event => event.id === message.id && event.phase === "attempted");
+  const valid = message.phase === "attempted" ? login && !attempted : attempted && attempted.tabId === sender.tab.id &&
+    ["recovered", "unconfirmed"].includes(message.phase) && !recoveryEvents.some(event => event.id === message.id && event !== attempted);
+  if (!valid) return;
+  recoveryEvents.push({ id: message.id, phase: message.phase, login: attempted?.login ?? login, tabId: sender.tab.id });
+  if (recoveryEvents.length > 40) recoveryEvents.shift();
+  ++recoveryRevision;
+  scheduleTabChange();
+});
 
 async function readManagedTabs(scope, channels) {
   const { [managedTabKey]: stored = {} } = await chrome.storage.session.get(managedTabKey);
@@ -85,14 +101,18 @@ async function managedCommand(request) {
   const channels = await channelTabs();
   const { stored, tabs, pending } = await readManagedTabs(request.scope, channels);
   const logins = [...new Set(channels.map(({ login }) => login))];
-  const snapshot = () => logins.length <= 500 && tabs.length <= maxManagedTabs
-    ? { status: "complete", logins, managedTabs: tabs }
-    : { status: "partial", logins: [] };
-  if (request.method === "oshi_tabs") return snapshot();
+  if (request.method === "oshi_tabs") {
+    const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+    const extensionVersion = chrome.runtime.getManifest?.().version;
+    return logins.length <= 500 && tabs.length <= maxManagedTabs
+      ? { status: "complete", logins, managedTabs: tabs, windowCount: windows.length, extensionVersion,
+          recoveryEvents: recoveryEvents.map(({ id, phase, login }) => ({ id, phase, login })) }
+      : { status: "partial", logins: [] };
+  }
 
   const { action, tabId, revision, expectedLogin, assignment, channel } = request.mutation ?? {};
   const login = request.login?.toLowerCase();
-  if (!["open", "switch", "close", "watch", "adopt"].includes(action) || !identifier.test(assignment))
+  if (!["open", "switch", "close", "watch", "adopt", "adopt_startup"].includes(action) || !identifier.test(assignment))
     return { status: "unavailable", logins: [] };
   if (action !== "close" && (!channelLoginPattern.test(login ?? "") || nonChannelRoutes.has(login) ||
       channel?.provider !== "twitch" || typeof channel.id !== "string" || !/^\d{1,32}$/.test(channel.id)))
@@ -100,11 +120,13 @@ async function managedCommand(request) {
 
   if (tabs.some(tab => tab.revision === assignment))
     return { status: "complete", logins: [] };
-  const existing = channels.filter(candidate => candidate.login === login);
+  const matchStartup = url => url?.endsWith("#oshi-start=" + assignment);
+  const existing = channels.filter(candidate => candidate.login === login &&
+    (action !== "adopt_startup" || matchStartup(candidate.tab.pendingUrl ?? candidate.tab.url)));
   if ((action === "open" || action === "switch") && existing.length)
     return { status: "partial", logins: [] };
 
-  if (action === "open" || action === "watch" || action === "adopt") {
+  if (["open", "watch", "adopt", "adopt_startup"].includes(action)) {
     const cap = request.mutation.tabCap ?? maxManagedTabs;
     if (!Number.isInteger(cap) || cap < 0 || cap > maxManagedTabs)
       return { status: "unavailable", logins: [] };
@@ -117,7 +139,13 @@ async function managedCommand(request) {
       }
       return { status: "complete", logins: [] };
     }
-    if (action === "adopt" && existing.length === 0) return reject("missing");
+    if ((action === "adopt" || action === "adopt_startup") && existing.length === 0) return reject("missing");
+    if (action === "watch" && existing.length > 0) {
+      const { tab } = existing[0];
+      await chrome.tabs.update(tab.id, { active: true });
+      await chrome.windows.update(tab.windowId, { focused: true });
+      return { status: "complete", logins: [] };
+    }
     // Count in-flight opens even before Chromium exposes their new Twitch URLs.
     if (tabs.length + pending >= cap) return reject("capacity");
     if (existing.length) {
@@ -127,11 +155,11 @@ async function managedCommand(request) {
       if (channels.some(candidate => candidate.tab.id !== tab.id && candidate.tab.windowId === tab.windowId))
         return reject("shared_window");
       const current = await chrome.tabs.get(tab.id);
-      if (channelLogin(current) !== login || channelLogin({ url: current.url }) !== login) return reject("missing");
+      if (channelLogin(current) !== login || channelLogin({ url: current.url }) !== login ||
+          (action === "adopt_startup" && !matchStartup(current.url))) return reject("missing");
       stored[tab.id] = { scope: request.scope, login, revision: assignment, channel };
       await chrome.storage.session.set({ [managedTabKey]: stored });
       await chrome.tabs.update(tab.id, { active: true });
-      if (action === "watch") await chrome.windows.update(tab.windowId, { focused: true });
       scheduleTabChange();
       return { status: "complete", logins: [] };
     }
@@ -186,7 +214,8 @@ function scheduleTabChange() {
     if (!port) return;
     try {
       const tabs = await readWatchTabs();
-      const signature = JSON.stringify([tabs.logins, tabs.activeLogins.sort()]);
+      const signature = JSON.stringify([tabs.logins, tabs.activeLogins.sort(),
+        (await chrome.windows.getAll({ windowTypes: ["normal"] })).length, recoveryRevision]);
       if (connection !== port || signature === lastWatchSignature) return;
       port.postMessage({ event: "watch_changed", managed: true });
       lastWatchSignature = signature;

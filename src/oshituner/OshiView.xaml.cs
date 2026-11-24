@@ -8,6 +8,20 @@ namespace oshituner;
 
 public partial class OshiView : UserControl
 {
+    private ToolTip? _keyboardHelp;
+
+    private void ExplainedHeader_GotKeyboardFocus(object sender, RoutedEventArgs args)
+    {
+        if (sender is not TextBlock header) return;
+        _keyboardHelp = new ToolTip { PlacementTarget = header, Content = header.ToolTip, IsOpen = true };
+    }
+
+    private void ExplainedHeader_LostKeyboardFocus(object sender, RoutedEventArgs args)
+    {
+        if (_keyboardHelp is not null) _keyboardHelp.IsOpen = false;
+        _keyboardHelp = null;
+    }
+
     private OshiState? _state;
     private IReadOnlyList<FollowedChannelRow> _channels = [];
     private Func<OshiChannelKey, bool>? _canRank;
@@ -32,7 +46,8 @@ public partial class OshiView : UserControl
             var next = browser?.Next is { } due ? Math.Max(0, Math.Ceiling((due - DateTimeOffset.UtcNow).TotalMinutes)).ToString() : "";
             var name = target.Id == "edge" ? "Edge" : "Chrome";
             return new BrowserRow(target.Id, state.Settings.DefaultBrowser == target.Id ? name + " (default)" : name,
-                state.Settings.CapFor(target.Id), browser?.Tabs.Length ?? 0, state.Running ? browser?.Reason ?? "Checking" : "", next);
+                state.Settings.CapFor(target.Id), browser is { Status: "ready" } ? browser.Tabs.Length.ToString() : "—",
+                state.Running ? browser?.Reason ?? "Checking" : "Paused", next);
         }).ToArray();
         if (Browsers.ItemsSource is not BrowserRow[] previous || !browsers.SequenceEqual(previous))
         {
@@ -270,7 +285,7 @@ public partial class OshiView : UserControl
         SaveRequested?.Invoke(change(_state.Settings));
     }
 
-    private sealed record BrowserRow(string Id, string Name, int Cap, int Managed, string Status, string Next)
+    private sealed record BrowserRow(string Id, string Name, int Cap, string Managed, string Status, string Next)
     {
         public string EditCap { get; set; } = Cap.ToString();
     }

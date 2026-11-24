@@ -47,6 +47,37 @@
     return null;
   }
 
+  function observeReload(player, login) {
+    const runtime = globalThis.chrome?.runtime;
+    if (!runtime?.sendMessage || !globalThis.crypto?.randomUUID || !player) return;
+    const id = crypto.randomUUID().replaceAll("-", "");
+    const report = phase => {
+      try { void runtime.sendMessage({ type: "player_recovery", id, phase }).catch(() => {}); }
+      catch { /* The extension was reloaded during playback. */ }
+    };
+    report("attempted");
+    const deadline = performance.now() + 15_000;
+    let previousVideo;
+    let previousTime;
+    function check() {
+      if (channelRoute() !== login || performance.now() >= deadline) {
+        report("unconfirmed");
+        return;
+      }
+      const video = player.isConnected ? player.querySelector("video")
+        : document.querySelectorAll(playerSelector)[0]?.querySelector("video");
+      if (video && !video.paused && !video.seeking && video.readyState >= 2 &&
+          video === previousVideo && video.currentTime > previousTime + 0.1 && !findReloadControl()) {
+        report("recovered");
+        return;
+      }
+      previousVideo = video;
+      previousTime = video?.currentTime;
+      setTimeout(check, 500);
+    }
+    setTimeout(check, 500);
+  }
+
   function scan() {
     clearTimeout(retryTimer);
     const current = channelRoute();
@@ -69,6 +100,7 @@
     }
     ++attempts;
     nextClick = performance.now() + retryDelayMs;
+    observeReload(control.closest?.(playerSelector), route);
     control.click();
     if (attempts < maxAttempts) retryTimer = setTimeout(scan, retryDelayMs);
   }

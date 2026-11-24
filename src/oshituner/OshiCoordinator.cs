@@ -23,6 +23,10 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
     private string? _statusAccount;
     private CancellationTokenSource? _run;
     private bool _busy;
+    private bool _observing;
+    private readonly Queue<(string Browser, string Id, string Phase)> _recentRecoveries = new();
+    private readonly HashSet<(string Browser, string Id, string Phase)> _reportedRecoveries = [];
+    private readonly Dictionary<(string Browser, string Id), (string Login, DateTimeOffset Deadline)> _pendingRecoveries = [];
 
     public event Action? Changed;
     public OshiState State => new(session.Oshi, _run is not null, _runs.Values.Select(run => run.State).ToArray());
@@ -34,7 +38,14 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         if (running)
         {
             foreach (var browser in _runs.Keys.ToArray())
-                _runs[browser] = new(browser, _runs[browser].Deferred);
+            {
+                RearmBrowser(browser);
+                var previous = _runs[browser];
+                _runs[browser] = new(browser, previous.Deferred)
+                {
+                    State = previous.State
+                };
+            }
             _statusSettings = null;
             _statusDue = DateTimeOffset.MinValue;
             _timer.Tick += Tick;
@@ -52,6 +63,82 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
             previous.Dispose();
         }
         Changed?.Invoke();
+    }
+
+    private BrowserRun RunFor(string browser)
+    {
+        if (!_runs.TryGetValue(browser, out var run)) _runs.Add(browser, run = new(browser));
+        return run;
+    }
+
+    public void RearmBrowser(string browser)
+    {
+        var run = RunFor(browser);
+        if (!run.LaunchSuspended) return;
+        run.LaunchSuspended = false;
+        run.NextLaunchAttempt = DateTimeOffset.MinValue;
+        log.Write("Browser", $"{browser}: automatic launches resumed.");
+    }
+
+    public async Task ObserveWhilePausedAsync(CancellationToken token)
+    {
+        if (_run is not null || _observing) return;
+        _observing = true;
+        try
+        {
+            var browsers = await discovery.GetOshiTabsAsync(token);
+            if (_run is not null || token.IsCancellationRequested) return;
+            foreach (var browser in browsers)
+            {
+                var run = RunFor(browser.Browser);
+                ObserveBrowserLifecycle(browser, run);
+                run.State = new(browser.Browser, browser.Status, "Paused", null, browser.Tabs);
+            }
+            Changed?.Invoke();
+        }
+        finally { _observing = false; }
+    }
+
+    private void ObserveBrowserLifecycle(OshiBrowserSnapshot browser, BrowserRun run)
+    {
+        foreach (var recovery in browser.RecoveryEvents ?? [])
+        {
+            var key = (browser.Browser, recovery.Id, recovery.Phase);
+            if (!_reportedRecoveries.Add(key)) continue;
+            _recentRecoveries.Enqueue(key);
+            if (_recentRecoveries.Count > 256) _reportedRecoveries.Remove(_recentRecoveries.Dequeue());
+            var attempt = (browser.Browser, recovery.Id);
+            if (recovery.Phase == "attempted") _pendingRecoveries[attempt] = (recovery.Login, Now.AddSeconds(20));
+            else if (!_pendingRecoveries.Remove(attempt)) continue;
+            var result = recovery.Phase switch
+            {
+                "attempted" => "reload attempted",
+                "recovered" => "playback recovered",
+                _ => "playback recovery unconfirmed"
+            };
+            log.Write("Twitch player", $"{browser.Browser}: {recovery.Login}: {result} after Error #1000.");
+        }
+        foreach (var pending in _pendingRecoveries.Where(entry => entry.Key.Browser == browser.Browser && entry.Value.Deadline <= Now).ToArray())
+        {
+            _pendingRecoveries.Remove(pending.Key);
+            log.Write("Twitch player", $"{browser.Browser}: {pending.Value.Login}: playback recovery unconfirmed after Error #1000.");
+        }
+        if (browser.Status == "ready")
+        {
+            if (browser.WindowCount > 0 || browser.Logins.Length > 0) RearmBrowser(browser.Browser);
+            if (browser.WindowCount == 0 && run.WindowCount > 0) SuspendBrowser(browser.Browser, run, "last window closed");
+            run.WindowCount = browser.WindowCount;
+            run.HadBrowserContact = true;
+        }
+        else if (run.HadBrowserContact && run.Startup is null)
+            SuspendBrowser(browser.Browser, run, "browser contact lost");
+    }
+
+    private void SuspendBrowser(string browser, BrowserRun run, string reason)
+    {
+        if (run.LaunchSuspended) return;
+        run.LaunchSuspended = true;
+        log.Write("Browser", $"{browser}: automatic launches suspended ({reason}).");
     }
 
     private async void Tick(object? sender, EventArgs args)
@@ -98,9 +185,41 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
             var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var browser in browsers.OrderBy(browser => browser.Browser != settings.DefaultBrowser))
             {
-                if (!_runs.TryGetValue(browser.Browser, out var run))
-                    _runs.Add(browser.Browser, run = new(browser.Browser));
+                token.ThrowIfCancellationRequested();
+                if (!Equals(settings, session.Oshi) || account != session.UserId) break;
+                var run = RunFor(browser.Browser);
+                ObserveBrowserLifecycle(browser, run);
                 if (browser.Status == "ready") run.Observe(browser, _live, now);
+                if (run.Startup is { } startup)
+                {
+                    if (now >= startup.Deadline || !Equals(settings, startup.Settings) || account != startup.Account ||
+                        !_live.Any(channel => channel.Channel == startup.Channel && channel.Online == true &&
+                            string.Equals(channel.Login, startup.Login, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        run.Startup = null;
+                        if (browser.Status != "ready") SuspendBrowser(browser.Browser, run, "startup was not confirmed");
+                    }
+                    else
+                    {
+                        reserved.Add(startup.Login);
+                        token.ThrowIfCancellationRequested();
+                        if (browser.Status == "ready" && await discovery.ApplyOshiMutationAsync(browser.Browser, startup.Login,
+                            new("adopt_startup", startup.Assignment, Channel: startup.Channel, TabCap: settings.CapFor(browser.Browser)), token))
+                        {
+                            run.Startup = null;
+                            if (startup.IsFallback) run.FallbackSince = null;
+                            log.Write("Oshi", $"{browser.Browser}: managed startup stream {startup.Login}.");
+                        }
+                        run.State = new(browser.Browser, browser.Status, "Checking startup stream", null, browser.Tabs);
+                        continue;
+                    }
+                }
+                if (run.LaunchSuspended)
+                {
+                    run.RankSkips.Clear();
+                    run.State = new(browser.Browser, browser.Status, "Automatic launches suspended", null, browser.Tabs);
+                    continue;
+                }
                 var watchingElsewhere = browsers.Where(other => other.Browser != browser.Browser)
                     .SelectMany(other => other.Logins).Concat(reserved).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var mayStartBrowser = browser.Status == "browser unavailable";
@@ -108,6 +227,14 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                 var decision = OshiPlanner.Plan(settings, planningBrowser, _live, run.Turns, run.Served, run.Deferred,
                     run.FallbackSince, now, watchingElsewhere);
                 run.FallbackSince = decision.FallbackSince;
+                if (browser.Status != "ready") run.RankSkips.Clear();
+                else if (decision.Action is null)
+                {
+                    var skips = (decision.RankSkips ?? []).ToHashSet();
+                    foreach (var skip in skips.Except(run.RankSkips))
+                        log.Write("Oshi", $"{browser.Browser}: skipped {skip.Channel} ({skip.Rank}); keeping {skip.CompetingChannel} ({skip.CompetingRank}) because {skip.Reason}.");
+                    run.RankSkips = skips;
+                }
                 var next = decision.Next is { } due ? DateTimeOffset.UtcNow + (due - now) : (DateTimeOffset?)null;
                 var statusSummary = $"{browser.Browser}: {browser.Status}; {browser.Tabs.Length}/{settings.CapFor(browser.Browser)} managed, {browser.Logins.Length} Twitch channels.";
                 if (run.LastStatusSummary != statusSummary)
@@ -118,15 +245,19 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                 run.State = new(browser.Browser, browser.Status, decision.Reason, next, browser.Tabs);
                 if (mayStartBrowser)
                 {
-                    var reason = run.FocusUntil > now ? "Starting browser" : browser.Status;
-                    if (decision.Action == "open" && now >= run.NextLaunchAttempt)
+                    var reason = browser.Status;
+                    if (decision.Action == "open" && decision.Channel is { Login: { } startupLogin } selected && now >= run.NextLaunchAttempt)
                     {
+                        token.ThrowIfCancellationRequested();
                         run.NextLaunchAttempt = now + BrowserLaunchRetryDelay;
-                        if (discovery.TryLaunchForOshi(browser.Browser))
+                        var assignment = Guid.NewGuid().ToString("N");
+                        if (discovery.TryLaunchForOshi(browser.Browser, startupLogin, assignment))
                         {
-                            run.FocusUntil = run.NextLaunchAttempt;
+                            run.Startup = new(startupLogin, selected.Channel, assignment, run.NextLaunchAttempt,
+                                settings, account, decision.FallbackSince.HasValue);
+                            reserved.Add(startupLogin);
                             reason = "Starting browser";
-                            log.Write("Browser", $"{browser.Browser}: starting for {decision.Channel?.Login}.");
+                            log.Write("Browser", $"{browser.Browser}: starting for {startupLogin}.");
                         }
                     }
                     run.State = run.State with { Reason = reason };
@@ -138,9 +269,8 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                 if (!Equals(settings, session.Oshi) || account != session.UserId) break;
                 var tab = decision.Tab;
                 var revision = Guid.NewGuid().ToString("N");
-                var focus = decision.Action == "open" && run.FocusUntil > now;
                 var mutation = new OshiBrowserMutation(decision.Action, revision, tab?.TabId, tab?.Revision, tab?.Login,
-                    decision.Channel?.Channel, settings.CapFor(browser.Browser), focus);
+                    decision.Channel?.Channel, settings.CapFor(browser.Browser));
                 if (decision.Channel?.Login is { } login) reserved.Add(login);
                 run.Pending = new(tab?.Revision, revision, false, decision.FallbackSince.HasValue);
                 var acknowledged = await discovery.ApplyOshiMutationAsync(browser.Browser, decision.Channel?.Login, mutation, token);
@@ -150,7 +280,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                 if (acknowledged || run.LastFailedAction != actionSummary)
                     log.Write("Oshi", $"{actionSummary}: {(acknowledged ? "confirmed" : "not confirmed")}.");
                 run.LastFailedAction = acknowledged ? null : actionSummary;
-                if (acknowledged && focus) run.FocusUntil = DateTimeOffset.MinValue;
+                if (acknowledged) run.RankSkips.Clear();
                 if (acknowledged && decision.Action == "close")
                     run.Pending = run.Pending with { Closed = true };
                 if (!acknowledged) run.State = run.State with { Reason = "Waiting for browser confirmation" };
@@ -175,10 +305,14 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
 
     public void Dispose() => SetRunning(false);
 
+    private sealed record StartupStream(string Login, OshiChannelKey Channel, string Assignment, DateTimeOffset Deadline,
+        OshiSettings Settings, string? Account, bool IsFallback);
+
     private sealed record PendingMutation(string? PreviousRevision, string Revision, bool Closed, bool IsFallback);
 
     private sealed class BrowserRun(string browser, Dictionary<string, DateTimeOffset>? deferred = null)
     {
+        public HashSet<OshiRankSkip> RankSkips { get; set; } = [];
         private OshiBrowserTab[] _previous = [];
         public Dictionary<int, OshiTurn> Turns { get; } = [];
         public Dictionary<(OshiChannelKey, string?), DateTimeOffset> Served { get; } = [];
@@ -186,7 +320,10 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         public DateTimeOffset? FallbackSince { get; set; }
         public PendingMutation? Pending { get; set; }
         public DateTimeOffset NextLaunchAttempt { get; set; }
-        public DateTimeOffset FocusUntil { get; set; }
+        public StartupStream? Startup { get; set; }
+        public bool LaunchSuspended { get; set; }
+        public bool HadBrowserContact { get; set; }
+        public int? WindowCount { get; set; }
         public string? LastStatusSummary { get; set; }
         public string? LastFailedAction { get; set; }
         public OshiBrowserState State { get; set; } = new(browser, "checking", "", null, []);
