@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <OshiOfficialVersion>1.0.0.3</OshiOfficialVersion>
+    <OshiOfficialVersion>1.0.0.4</OshiOfficialVersion>
     <OshiOfficialTwitchVersion>1.0.0.3</OshiOfficialTwitchVersion>
   </PropertyGroup>
 </Project>
