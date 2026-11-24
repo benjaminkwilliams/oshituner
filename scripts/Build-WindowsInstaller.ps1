@@ -16,6 +16,9 @@ if (-not $compiler) {
     $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
 }
 if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) { throw 'Inno Setup 6 is required to build the installer.' }
+$sdkVersion = dotnet --version
+if ($LASTEXITCODE -ne 0) { throw 'Could not identify the .NET SDK.' }
+Write-Host ".NET SDK $sdkVersion"
 
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 $null = New-Item -ItemType Directory -Path $output -Force
@@ -24,11 +27,15 @@ try {
     dotnet publish (Join-Path $src 'oshituner.csproj') -c Release -r win-x64 --self-contained true -o $publish -warnaserror -p:OshiUseOfficialVersion=true
     if ($LASTEXITCODE -ne 0) { throw 'The self-contained publish failed.' }
 
+    $runtimeConfig = Get-Content -LiteralPath (Join-Path $publish 'oshituner.runtimeconfig.json') -Raw | ConvertFrom-Json
+    foreach ($framework in $runtimeConfig.runtimeOptions.includedFrameworks) {
+        Write-Host "Bundled runtime $($framework.name) $($framework.version)"
+    }
     $assemblyVersion = [Reflection.AssemblyName]::GetAssemblyName((Join-Path $publish 'oshituner.dll')).Version
     if ($assemblyVersion.ToString() -ne $version) { throw "The published version $assemblyVersion does not match $version." }
 
     $license = Join-Path $root 'LICENSE'
-    & $compiler '/Qp' "/O$output" "/DAppVersion=$version" "/DPublishDir=$publish" "/DAppLicense=$license" (Join-Path $root 'installer/OshiTuner.iss')
+    & $compiler "/O$output" "/DAppVersion=$version" "/DPublishDir=$publish" "/DAppLicense=$license" (Join-Path $root 'installer/OshiTuner.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed to compile the installer.' }
 
     $path = Join-Path $output "Oshi-Tuner-$version-win-x64-Setup.exe"

@@ -12,10 +12,11 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-dotnet@v5
+          persist-credentials: false
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           dotnet-version: '10.0.x'
       - name: Verify external PR version

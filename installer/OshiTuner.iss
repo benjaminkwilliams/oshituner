@@ -1,3 +1,5 @@
+#pragma message "Inno Setup compiler " + Str((Ver >> 24) & 255) + "." + Str((Ver >> 16) & 255) + "." + Str((Ver >> 8) & 255)
+
 [Setup]
 AppId={{92C18ECB-4BA8-4D05-BAE6-CA3047E78C69}
 AppName=Oshi Tuner

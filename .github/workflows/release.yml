@@ -14,12 +14,16 @@ concurrency:
 jobs:
   package:
     runs-on: windows-2025
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           dotnet-version: '10.0.x'
       - name: Verify official version tag
@@ -72,7 +76,11 @@ jobs:
           if ($uninstall.Count -ne 1) { throw 'Expected one uninstaller.' }
           $result = Start-Process -FilePath $uninstall[0].FullName -ArgumentList $quiet -WindowStyle Hidden -Wait -PassThru
           if ($result.ExitCode -ne 0 -or (Test-Path -LiteralPath $app)) { throw 'Uninstallation did not remove the app.' }
-      - uses: actions/upload-artifact@v6
+      - name: Attest the tested installer
+        uses: actions/attest@c32b4b8b198b65d0bd9d63490e847ff7b53989d4 # v4.0.0
+        with:
+          subject-path: ${{ runner.temp }}/oshi-release/*-Setup.exe
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: windows-installer
           path: ${{ runner.temp }}/oshi-release/*-Setup.exe
@@ -83,8 +91,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      attestations: read
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: windows-installer
           path: installer
@@ -95,8 +104,15 @@ jobs:
         run: |
           asset="Oshi-Tuner-${GITHUB_REF_NAME#v}-win-x64-Setup.exe"
           test -f "installer/$asset"
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > release-assets.txt 2>/dev/null; then
-            grep -Fx "$asset" release-assets.txt
+          verify_installer() {
+            gh attestation verify "$1" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+          }
+          verify_installer "installer/$asset"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir published
+            verify_installer "published/$asset"
           else
             gh release create "$GITHUB_REF_NAME" "installer/$asset" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --title "Oshi Tuner ${GITHUB_REF_NAME#v}" \
