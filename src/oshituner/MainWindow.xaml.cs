@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Threading;
 
 namespace oshituner;
@@ -34,6 +35,7 @@ public partial class MainWindow : Window
     private bool _exitRequested;
     private bool _stoppingDesktop;
     private bool _hiddenToTray;
+    private bool _desktopStarted;
 
     public MainWindow()
     {
@@ -61,7 +63,7 @@ public partial class MainWindow : Window
         _session.Changed += RenderOshi;
         _statusView.RankChoices = row => _session.CanRank(new(row.Provider, row.ChannelId)) &&
             !_session.Oshi.Ranks.Any(group => group.Channels.Any(entry => entry.Channel == new OshiChannelKey(row.Provider, row.ChannelId)))
-            ? _session.Oshi.Ranks.Select(group => group.Id).ToArray() : null;
+            ? _session.Oshi.Ranks : null;
         _statusView.AddOshiRequested = (row, rank) => Run(() =>
         {
             _control.AddOshiChannel(new(row.Provider, row.ChannelId), rank);
@@ -85,18 +87,39 @@ public partial class MainWindow : Window
             if (WindowState == WindowState.Minimized) HideToTray();
             else _restoreState = WindowState;
         };
+        for (var hours = OshiSettings.DefaultCooldownHours; hours <= OshiSettings.MaxCooldownHours; hours++)
+        {
+            var item = new MenuItem { Header = hours == 1 ? "1 hour" : $"{hours} hours", Tag = hours, IsCheckable = true };
+            item.Click += AutoLaunchCooldown_Click;
+            AutoLaunchCooldown.Items.Add(item);
+        }
         Closing += Window_Closing;
         _ = DesktopTray.ObserveExitAsync(_profile, ExitDesktop, _lifetime.Token);
     }
 
-    private void RenderOshi() => _oshiView.Render(_control.GetOshi(), _session.CanRank);
+    private void RenderOshi() => _oshiView.Render(_control.GetOshi(), _session.Channels, _session.CanRank);
 
     private void ShowOshi_Click(object sender, RoutedEventArgs e) => Run(() => _control.OpenPane("oshi"));
 
-    private async void Window_Loaded(object sender, RoutedEventArgs e)
+    private void Window_Loaded(object sender, RoutedEventArgs e)
     {
         Loaded -= Window_Loaded;
+        StartDesktop(autoLaunch: false);
+    }
+
+    internal void StartInTray()
+    {
+        _hiddenToTray = true;
+        _workspace.SetTrayHidden(true);
+        StartDesktop(autoLaunch: true);
+    }
+
+    private async void StartDesktop(bool autoLaunch)
+    {
+        if (_desktopStarted) return;
+        _desktopStarted = true;
         _workspace.Restore();
+        if (autoLaunch) _oshi.SetRunning(true);
         _ = ObserveWatchChangesAsync();
         _watchTimer.Start();
         try
@@ -145,6 +168,7 @@ public partial class MainWindow : Window
     {
         if (_hiddenToTray || _exitRequested || _stoppingDesktop) return;
         _hiddenToTray = true;
+        _workspace.SetTrayHidden(true);
         // Windows can temporarily hide owned HWNDs before WPF reports the owner as minimized.
         _hiddenWindows.AddRange(_workspace.FloatingWindows.Union(
             OwnedWindows.OfType<Window>().Where(window => window.Visibility == Visibility.Visible)));
@@ -162,6 +186,7 @@ public partial class MainWindow : Window
             foreach (var window in _hiddenWindows)
                 if (OwnedWindows.OfType<Window>().Contains(window)) window.Show();
             _hiddenWindows.Clear();
+            _workspace.SetTrayHidden(false);
         }
         Activate();
     }
@@ -185,6 +210,7 @@ public partial class MainWindow : Window
         _refreshTimer.Stop();
         _watchTimer.Stop();
         var shutdown = _host?.DisposeAsync();
+        if (_session.Oshi.AutoLaunch) AutoLaunch.RecordExit(_profile);
         _session.Dispose();
         _instanceLock.Dispose();
         if (shutdown is { } pending) _ = pending.AsTask();
@@ -214,6 +240,22 @@ public partial class MainWindow : Window
         {
             ReportError(exception.Message);
         }
+    }
+
+    private void AutoLaunch_Opened(object sender, RoutedEventArgs e)
+    {
+        AutoLaunchEnabled.IsChecked = _session.Oshi.AutoLaunch;
+        foreach (var item in AutoLaunchCooldown.Items.OfType<MenuItem>())
+            item.IsChecked = (int)item.Tag == _session.Oshi.AutoLaunchCooldownHours;
+    }
+
+    private void AutoLaunchEnabled_Click(object sender, RoutedEventArgs e) =>
+        Run(() => _control.SetOshi(_session.Oshi with { AutoLaunch = AutoLaunchEnabled.IsChecked }));
+
+    private void AutoLaunchCooldown_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { Tag: int hours })
+            Run(() => _control.SetOshi(_session.Oshi with { AutoLaunchCooldownHours = hours }));
     }
 
     private void Theme_Click(object sender, RoutedEventArgs e) => _control.OpenTheme();

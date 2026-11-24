@@ -132,6 +132,7 @@ internal sealed partial class DockWorkspace
 
     private void ShowFloating(Group group, bool activate)
     {
+        if (_trayHidden) return;
         var window = new Window
         {
             Owner = _shell, Content = group.Chrome, Width = 680, Height = 420, MinWidth = 260, MinHeight = 170,

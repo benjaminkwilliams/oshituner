@@ -6,9 +6,6 @@ internal sealed record OshiDecision(string? Action, OshiLiveChannel? Channel, Os
 
 internal static class OshiPlanner
 {
-    public static readonly TimeSpan TurnLength = TimeSpan.FromMinutes(30);
-    public static readonly TimeSpan FallbackWait = TimeSpan.FromMinutes(10);
-
     public static OshiDecision Plan(OshiSettings settings, OshiBrowserSnapshot browser, OshiLiveChannel[] channels,
         IReadOnlyDictionary<int, OshiTurn> turns, IReadOnlyDictionary<(OshiChannelKey, string?), DateTimeOffset> served,
         IReadOnlyDictionary<string, DateTimeOffset> deferred, DateTimeOffset? fallbackSince, DateTimeOffset now,
@@ -20,7 +17,10 @@ internal static class OshiPlanner
             group.Channels.Where(entry => settings.BrowserFor(entry) == browser.Browser)
                 .Select(entry => (entry.Channel, index)))
             .ToDictionary(entry => entry.Channel, entry => entry.index);
-        var anyRank = settings.Ranks.SelectMany(group => group.Channels).Select(entry => entry.Channel).ToHashSet();
+        var memberOrder = settings.Ranks.SelectMany(group => group.Channels.Select((entry, index) => (entry.Channel, index)))
+            .ToDictionary(entry => entry.Channel, entry => entry.index);
+        var anyRank = memberOrder.Keys.ToHashSet();
+        var timings = (settings.Timings ?? []).ToDictionary(rule => rule.Channel);
         int Priority(OshiLiveChannel? channel) => channel is not null ? rank.GetValueOrDefault(channel.Channel, int.MaxValue) : int.MaxValue;
         // The current browser protocol reports Twitch routes. Add provider-qualified routes when the bridge supports another site.
         channels = channels.Where(channel => channel.Channel.Provider == "twitch").ToArray();
@@ -33,7 +33,10 @@ internal static class OshiPlanner
             channel ??= byLogin[tab.Login].OrderBy(Priority).FirstOrDefault();
             var turn = turns[tab.TabId];
             var priority = tab.Channel is { } owned ? rank.GetValueOrDefault(owned, int.MaxValue) : Priority(channel);
-            return (Tab: tab, Channel: channel, Rank: priority, Since: turn.Since);
+            var keyForTiming = tab.Channel ?? channel?.Channel;
+            var minimumWatch = keyForTiming is { } keyValue ? timings.GetValueOrDefault(keyValue)?.RotationMinutes : null;
+            return (Tab: tab, Channel: channel, Rank: priority, Since: turn.Since,
+                MinimumWatchUntil: turn.Since.AddMinutes(minimumWatch ?? OshiSettings.DefaultWatchMinutes));
         }).OrderByDescending(slot => slot.Channel?.Online == false)
             .ThenByDescending(slot => slot.Rank).ThenBy(slot => slot.Since).ToArray();
 
@@ -45,8 +48,8 @@ internal static class OshiPlanner
         var candidates = channels.Where(channel => channel.Online == true && channel.Login is { Length: > 0 } login
             && !open.Contains(login) && (!deferred.TryGetValue(login, out var until) || until <= now)).ToArray();
         var ranked = candidates.Where(channel => rank.ContainsKey(channel.Channel)).OrderBy(Priority)
-            .ThenBy(channel => served.GetValueOrDefault((channel.Channel, channel.StreamId), DateTimeOffset.MinValue))
-            .ThenBy(channel => channel.StartedAt ?? DateTimeOffset.MaxValue)
+            .ThenBy(channel => channel.StartedAt ?? channel.FirstObservedLive ?? DateTimeOffset.MaxValue)
+            .ThenBy(channel => memberOrder[channel.Channel])
             .ThenBy(channel => channel.Channel.Provider, StringComparer.Ordinal)
             .ThenBy(channel => channel.Channel.Id, StringComparer.Ordinal);
         DateTimeOffset? next = null;
@@ -56,10 +59,12 @@ internal static class OshiPlanner
             var priority = Priority(channel);
             var replace = slots.FirstOrDefault(slot => slot.Channel?.Online == false || slot.Rank > priority);
             if (replace.Tab is not null) return new("switch", channel, replace.Tab, "Ranked channel takes priority");
-            var peer = slots.FirstOrDefault(slot => slot.Rank == priority && slot.Channel?.Online == true);
+            var wentLive = channel.StartedAt ?? channel.FirstObservedLive;
+            var peer = slots.Where(slot => slot.Rank == priority && slot.Channel?.Online == true && wentLive > slot.Since)
+                .OrderBy(slot => slot.MinimumWatchUntil).FirstOrDefault();
             if (peer.Tab is null) continue;
-            var due = peer.Since + TurnLength;
-            if (due <= now) return new("switch", channel, peer.Tab, "Rotate tied rank");
+            var due = peer.MinimumWatchUntil;
+            if (due <= now) return new("switch", channel, peer.Tab, "Same-rank channel went live");
             if (next is null || due < next) next = due;
         }
 
@@ -67,7 +72,7 @@ internal static class OshiPlanner
             channels.Any(channel => rank.ContainsKey(channel.Channel) && channel.Online != false &&
             channel.Login is { } login && open.Contains(login));
         if (watchingRanked)
-            return new(null, null, null, next.HasValue ? "Tied rank is taking a turn" : "Keep current tabs", next);
+            return new(null, null, null, next.HasValue ? "Waiting for minimum watch time" : "Keep current tabs", next);
 
         var fallback = candidates.Where(channel => channel.FallbackEligible && !anyRank.Contains(channel.Channel) &&
             !(watchingElsewhere?.Contains(channel.Login!) ?? false))
@@ -75,11 +80,14 @@ internal static class OshiPlanner
             .ThenBy(channel => channel.StartedAt ?? DateTimeOffset.MaxValue)
             .ThenBy(channel => channel.Channel.Id, StringComparer.Ordinal).FirstOrDefault();
         if (fallback is null) return new(null, null, null, "No eligible channel waiting", next);
-        var fallbackDue = (fallbackSince ?? now) + FallbackWait;
+        var opening = slots.Length < cap;
+        var fallbackSlot = slots.FirstOrDefault(slot => slot.Rank == int.MaxValue || slot.Channel?.Online == false);
+        var timedChannel = opening ? fallback.Channel : fallbackSlot.Tab?.Channel ?? fallbackSlot.Channel?.Channel ?? fallback.Channel;
+        var delay = timings.GetValueOrDefault(timedChannel)?.FallbackMinutes ?? OshiSettings.DefaultFallbackMinutes;
+        var fallbackDue = (fallbackSince ?? now).AddMinutes(delay);
         if (fallbackDue > now)
             return new(null, null, null, "Wait for fallback", fallbackDue, fallbackSince ?? now);
-        if (slots.Length < cap) return new("open", fallback, null, "Watch an unranked follow or sub", FallbackSince: fallbackSince);
-        var fallbackSlot = slots.FirstOrDefault(slot => slot.Rank == int.MaxValue || slot.Channel?.Online == false);
+        if (opening) return new("open", fallback, null, "Watch an unranked follow or sub", FallbackSince: fallbackSince);
         return fallbackSlot.Tab is null ? new(null, null, null, "Keep current tabs")
             : new("switch", fallback, fallbackSlot.Tab, "Rotate unranked follow or sub", FallbackSince: fallbackSince);
     }

@@ -16,6 +16,7 @@
     <Grid Margin="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <WrapPanel Grid.Row="0" Margin="0,0,0,8" x:Name="ListToolbar" Visibility="Collapsed">
@@ -40,10 +41,23 @@
             </WrapPanel>
         </WrapPanel>
 
-        <Border Grid.Row="1" CornerRadius="8">
+        <WrapPanel x:Name="ColumnEditor" Grid.Row="1" Visibility="Collapsed" Margin="0,0,0,8">
+            <Label x:Name="ColumnEditorLabel" Target="{Binding ElementName=ColumnQuery}" />
+            <TextBox x:Name="ColumnQuery" Width="200" KeyDown="ColumnQuery_KeyDown" />
+            <Button x:Name="ColumnApply" Click="ColumnApply_Click" Margin="6,0,0,0" />
+            <Button Content="Close" Click="CloseColumnEditor_Click" Margin="6,0,0,0" />
+            <TextBlock x:Name="ColumnFeedback" Margin="8,0,0,0" AutomationProperties.LiveSetting="Polite" />
+        </WrapPanel>
+
+        <Border Grid.Row="2" CornerRadius="8">
             <Grid>
                 <DataGrid x:Name="FollowedChannelsGrid" ItemsSource="{Binding FollowedChannels}" AlternationCount="2" CanUserSortColumns="False"
                           PreviewMouseRightButtonDown="SelectChannelForContextMenu">
+                    <DataGrid.ColumnHeaderStyle>
+                        <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                            <EventSetter Event="Loaded" Handler="ColumnHeader_Loaded" />
+                        </Style>
+                    </DataGrid.ColumnHeaderStyle>
                     <DataGrid.ContextMenu>
                         <ContextMenu Opened="ChannelMenu_Opened">
                             <MenuItem Header="Copy Twitch login" Click="CopyLogin_Click" />
@@ -51,7 +65,15 @@
                         </ContextMenu>
                     </DataGrid.ContextMenu>
                     <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="STATUS" Width="92">
+                        <DataGridTextColumn Header="RANK" Binding="{Binding RankName}" SortMemberPath="RankOrder" Width="145">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                    <Setter Property="ToolTip" Value="{Binding RankName}" />
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTemplateColumn Header="STATUS" SortMemberPath="Status" Width="92">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <TextBlock Text="{Binding Status}" FontWeight="Bold">
@@ -69,7 +91,7 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="WATCH" Width="112">
+                        <DataGridTemplateColumn Header="WATCH" SortMemberPath="WatchStatus" Width="112">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -107,7 +129,7 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTextColumn Header="SUB" Binding="{Binding SubscriptionStatus}" Width="90">
+                        <DataGridTextColumn Header="SUB" SortMemberPath="SubscriptionStatus" Binding="{Binding SubscriptionStatus}" Width="90">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Foreground" Value="{DynamicResource MutedForeground}" />
@@ -121,17 +143,17 @@
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Header="CHANNEL" Binding="{Binding DisplayName}" Width="170">
+                        <DataGridTextColumn Header="CHANNEL" SortMemberPath="DisplayName" Binding="{Binding DisplayName}" Width="170">
                             <DataGridTextColumn.ElementStyle>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="ToolTip" Value="{Binding Login}" />
                                 </Style>
                             </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Header="CATEGORY" Binding="{Binding GameName}" Width="170" />
-                        <DataGridTextColumn Header="STREAM TITLE" Binding="{Binding StreamTitle}" Width="*" />
-                        <DataGridTextColumn Header="VIEWERS" Binding="{Binding ViewerCount, StringFormat=N0}" Width="90" />
-                        <DataGridTextColumn Header="FOLLOWED" Binding="{Binding FollowedAt, StringFormat={}{0:yyyy-MM-dd}}" Width="110" />
+                        <DataGridTextColumn Header="CATEGORY" SortMemberPath="GameName" Binding="{Binding GameName}" Width="170" />
+                        <DataGridTextColumn Header="STREAM TITLE" SortMemberPath="StreamTitle" Binding="{Binding StreamTitle}" Width="*" />
+                        <DataGridTextColumn Header="VIEWERS" SortMemberPath="ViewerCount" Binding="{Binding ViewerCount, StringFormat=N0}" Width="90" />
+                        <DataGridTextColumn Header="FOLLOWED" SortMemberPath="FollowedAt" Binding="{Binding FollowedAt, StringFormat={}{0:yyyy-MM-dd}}" Width="110" />
                     </DataGrid.Columns>
                 </DataGrid>
                 <Border x:Name="EmptyStatePanel" Background="{DynamicResource PanelBackground}" Padding="12"

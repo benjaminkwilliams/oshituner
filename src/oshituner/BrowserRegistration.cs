@@ -14,6 +14,11 @@ internal sealed class BrowserRegistration(InstallProfile profile)
 
     public string InstallKey => profile.Key;
 
+    public void RequestDesktopWake(BrowserTarget target)
+    {
+        if (IsPairedHere(target)) AutoLaunch.Wake(profile);
+    }
+
     public BrowserPairing[] GetPairings() => Targets.Select(target =>
     {
         var registered = ReadManifest(target);

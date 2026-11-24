@@ -64,6 +64,7 @@ async function openChannel(login) {
 
 const managedTabKey = "oshiManagedTabs";
 const identifier = /^[a-f0-9]{32}$/;
+const maxManagedTabs = 50;
 let managedCommands = Promise.resolve();
 
 async function readManagedTabs(scope, channels) {
@@ -81,7 +82,7 @@ async function managedCommand(request) {
   const channels = await channelTabs();
   const { stored, tabs } = await readManagedTabs(request.scope, channels);
   const logins = [...new Set(channels.map(({ login }) => login))];
-  const snapshot = () => logins.length <= 500 && tabs.length <= 50
+  const snapshot = () => logins.length <= 500 && tabs.length <= maxManagedTabs
     ? { status: "complete", logins, managedTabs: tabs }
     : { status: "partial", logins: [] };
   if (request.method === "oshi_tabs") return snapshot();
@@ -100,12 +101,29 @@ async function managedCommand(request) {
     return { status: "partial", logins: [] };
 
   if (action === "open") {
+    const cap = request.mutation.tabCap ?? maxManagedTabs;
+    if (!Number.isInteger(cap) || cap < 0 || cap > maxManagedTabs)
+      return { status: "unavailable", logins: [] };
+    // The snapshot includes managed tabs from every window in this browser profile.
+    if (tabs.length >= cap) return { status: "partial", logins: [] };
+
     const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
     const tabWindows = new Set(channels.map(({ tab }) => tab.windowId));
     const target = windows.find(window => window.focused && tabWindows.has(window.id))
       ?? windows.find(window => tabWindows.has(window.id)) ?? windows.find(window => window.focused) ?? windows[0];
-    if (!target) return { status: "unavailable", logins: [] };
-    const tab = await chrome.tabs.create({ windowId: target.id, url: "https://www.twitch.tv/" + login, active: false });
+    const url = "https://www.twitch.tv/" + login;
+    if (target) {
+      const focus = request.mutation.focusOnOpen === true;
+      const tab = await chrome.tabs.create({ windowId: target.id, url, active: focus });
+      stored[tab.id] = { scope: request.scope, login, revision: assignment, channel };
+      await chrome.storage.session.set({ [managedTabKey]: stored });
+      if (focus) await chrome.windows.update(target.id, { focused: true });
+      return { status: "complete", logins: [] };
+    }
+
+    const window = await chrome.windows.create({ url, focused: true });
+    const tab = window.tabs?.[0] ?? (await chrome.tabs.query({ windowId: window.id, active: true }))[0];
+    if (!Number.isInteger(tab?.id)) return { status: "unavailable", logins: [] };
     stored[tab.id] = { scope: request.scope, login, revision: assignment, channel };
   } else {
     if (!tabs.some(tab => tab.tabId === tabId && tab.revision === revision && tab.login === expectedLogin))
@@ -193,7 +211,19 @@ function connect() {
       port.postMessage({ version: 1, id: request.id, ...result });
     }
   });
+  sendWakeHeartbeat();
   scheduleTabChange();
+}
+
+function sendWakeHeartbeat() {
+  const port = connection;
+  if (!port) return;
+  try {
+    port.postMessage({ event: "watch_changed", managed: true, wake: true });
+  } catch {
+    // A browser shutdown can disconnect between the alarm and postMessage.
+    if (connection === port) connection = undefined;
+  }
 }
 
 async function readGiftTabs() {
@@ -249,7 +279,9 @@ function readGiftPage() {
 }
 
 chrome.alarms.onAlarm.addListener(({ name }) => {
-  if (name === "connect-oshituner") connect();
+  if (name !== "connect-oshituner") return;
+  if (connection) sendWakeHeartbeat();
+  else connect();
 });
 chrome.runtime.onStartup.addListener(start);
 chrome.runtime.onInstalled.addListener(start);

@@ -52,7 +52,7 @@ internal sealed partial class TunerSession : IDisposable
     public void SetOshi(OshiSettings settings)
     {
         if (!settings.IsValid())
-            throw new ArgumentException($"Provide unique ranks and channels, valid browsers, and tab limits from 0 to {OshiSettings.MaxBrowserTabs}.");
+            throw new ArgumentException($"Check unique ranks and channels, browser tab limits (0 to {OshiSettings.MaxBrowserTabs}), rank names (up to {OshiRank.MaxNameLength} characters), row timings (5 to 60 minutes), and Auto Launch cooldown (1 to 5 hours).");
 
         var existing = Oshi.Ranks.SelectMany(rank => rank.Channels).Select(entry => entry.Channel).ToHashSet();
         foreach (var entry in settings.Ranks.SelectMany(rank => rank.Channels))

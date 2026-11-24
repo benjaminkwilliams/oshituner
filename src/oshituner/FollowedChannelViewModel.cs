@@ -27,6 +27,11 @@ internal sealed record FollowedChannelRow(
     bool EdgeAvailable = false,
     bool ChromeAvailable = false)
 {
+    [JsonIgnore]
+    public string RankName { get; init; } = "";
+    [JsonIgnore]
+    public int RankOrder { get; init; } = int.MaxValue;
+
     public bool IsLive => Online == true;
     public bool Watching => IsLive && BrowserTabOpen;
     public bool CanOpenWatch => IsLive && !BrowserTabOpen;

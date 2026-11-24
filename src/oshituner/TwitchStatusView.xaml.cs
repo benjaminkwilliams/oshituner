@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using System.Windows.Controls;
 using System.Windows.Input;
 
@@ -8,6 +10,7 @@ public partial class TwitchStatusView : UserControl
 {
     private readonly FollowedChannelViewModel _viewModel = new();
     private IReadOnlyList<FollowedChannelRow>? _renderedRows;
+    private OshiRank[]? _renderedRanks;
     private int _refreshMinutes;
 
     internal Action? RefreshRequested { get; set; }
@@ -15,13 +18,15 @@ public partial class TwitchStatusView : UserControl
     internal Action? EditSortRequested { get; set; }
     internal Func<FollowedChannelRow, string, Task>? WatchRequested { get; set; }
     internal Action<string>? CopyLoginRequested { get; set; }
-    internal Func<FollowedChannelRow, string[]?>? RankChoices { get; set; }
+    internal Func<FollowedChannelRow, OshiRank[]?>? RankChoices { get; set; }
     internal Action<FollowedChannelRow, string?>? AddOshiRequested { get; set; }
 
     public TwitchStatusView()
     {
         InitializeComponent();
         DataContext = _viewModel;
+        _columnView = System.Windows.Data.CollectionViewSource.GetDefaultView(_viewModel.FollowedChannels);
+        _columnView.Filter = MatchesFilters;
         foreach (var minutes in TunerSession.RefreshIntervals)
         {
             var option = new MenuItem { Header = minutes.ToString(), Tag = minutes, IsCheckable = true };
@@ -42,14 +47,20 @@ public partial class TwitchStatusView : UserControl
         System.Windows.Automation.AutomationProperties.SetHelpText(RefreshButton, helpText);
         MarkRefreshInterval();
 
-        if (!ReferenceEquals(_renderedRows, session.Channels))
+        if (!ReferenceEquals(_renderedRows, session.Channels) || !ReferenceEquals(_renderedRanks, session.Oshi.Ranks))
         {
             var selected = (FollowedChannelsGrid.SelectedItem as FollowedChannelRow)?.ChannelId;
             _renderedRows = session.Channels;
+            _renderedRanks = session.Oshi.Ranks;
+            var labels = _renderedRanks.SelectMany((rank, index) => rank.Channels.Select(entry =>
+                (entry.Channel, Name: rank.GridName(index), Order: index)))
+                .ToDictionary(entry => entry.Channel);
             _viewModel.FollowedChannels.Clear();
-            foreach (var row in _renderedRows) _viewModel.FollowedChannels.Add(row);
+            foreach (var row in _renderedRows)
+                _viewModel.FollowedChannels.Add(labels.TryGetValue(new(row.Provider, row.ChannelId), out var label)
+                    ? row with { RankName = label.Name, RankOrder = label.Order } : row);
             if (selected is not null)
-                FollowedChannelsGrid.SelectedItem = _renderedRows.FirstOrDefault(row => row.ChannelId == selected);
+                FollowedChannelsGrid.SelectedItem = _columnView.Cast<FollowedChannelRow>().FirstOrDefault(row => row.ChannelId == selected);
         }
 
         FollowCountText.Text = $"{session.Channels.Count(row => row.Followed)} followed";
@@ -81,8 +92,19 @@ public partial class TwitchStatusView : UserControl
 
     private void SelectChannelForContextMenu(object sender, MouseButtonEventArgs e)
     {
+        if (e.OriginalSource is Visual visual && IsColumnHeader(visual)) return;
         if (e.OriginalSource is DependencyObject element)
             FollowedChannelsGrid.SelectedItem = (ItemsControl.ContainerFromElement(FollowedChannelsGrid, element) as DataGridRow)?.Item;
+    }
+
+    private static bool IsColumnHeader(Visual visual)
+    {
+        for (DependencyObject? element = visual; element is not null; element = VisualTreeHelper.GetParent(element))
+        {
+            if (element is DataGridColumnHeader) return true;
+            if (element is DataGrid) break;
+        }
+        return false;
     }
 
     private void ChannelMenu_Opened(object sender, RoutedEventArgs e)
@@ -99,7 +121,7 @@ public partial class TwitchStatusView : UserControl
         AddOshiMenu.IsEnabled = true;
         AddChoice("New rank", null);
         for (var index = 0; index < choices.Length; index++)
-            AddChoice($"Rank {index + 1}", choices[index]);
+            AddChoice(choices[index].NumberedName(index), choices[index].Id);
 
         void AddChoice(string label, string? rank)
         {

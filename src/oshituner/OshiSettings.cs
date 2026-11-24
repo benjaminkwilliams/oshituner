@@ -14,11 +14,41 @@ internal sealed record OshiEntry(OshiChannelKey Channel, string? DisplayName = n
     public string Label => string.IsNullOrWhiteSpace(DisplayName) ? Channel.Id : DisplayName;
 }
 
-internal sealed record OshiRank(string Id, OshiEntry[] Channels);
+internal sealed record OshiRank(string Id, OshiEntry[] Channels, string? Name = null)
+{
+    public const int MaxNameLength = 20;
 
-internal sealed record OshiSettings(int Version, OshiRank[] Ranks, string DefaultBrowser, int EdgeCap, int ChromeCap)
+    public string NumberedName(int index) => string.IsNullOrWhiteSpace(Name)
+        ? $"Rank {index + 1}" : $"Rank {index + 1} · {Name}";
+
+    public string GridName(int index) => string.IsNullOrWhiteSpace(Name) ? $"Rank {index + 1}" : Name;
+}
+
+internal sealed record OshiChannelTiming(OshiChannelKey Channel, int? RotationMinutes = null, int? FallbackMinutes = null);
+
+internal sealed record OshiSettings(int Version, OshiRank[] Ranks, string DefaultBrowser, int EdgeCap, int ChromeCap,
+    OshiChannelTiming[]? Timings = null, bool AutoLaunch = false,
+    int AutoLaunchCooldownHours = OshiSettings.DefaultCooldownHours)
 {
     public const int MaxBrowserTabs = 50;
+    public const int DefaultWatchMinutes = 30;
+    public const int DefaultFallbackMinutes = 10;
+    public const int MinTimingMinutes = 5;
+    public const int MaxTimingMinutes = 60;
+    public const int DefaultCooldownHours = 1;
+    public const int MaxCooldownHours = 5;
+
+    public static bool ValidTiming(int? minutes) => minutes is null or >= MinTimingMinutes and <= MaxTimingMinutes;
+
+    public OshiChannelTiming TimingFor(OshiChannelKey channel) =>
+        Timings?.FirstOrDefault(rule => rule.Channel == channel) ?? new(channel);
+
+    public OshiSettings WithTiming(OshiChannelTiming timing)
+    {
+        var timings = (Timings ?? []).Where(rule => rule.Channel != timing.Channel);
+        if (timing.RotationMinutes.HasValue || timing.FallbackMinutes.HasValue) timings = timings.Append(timing);
+        return this with { Timings = timings.ToArray() };
+    }
 
     public static OshiSettings Create() => new(1, [], "edge", 1, 0);
 
@@ -30,13 +60,20 @@ internal sealed record OshiSettings(int Version, OshiRank[] Ranks, string Defaul
 
     public bool IsValid()
     {
-        if (Version != 1 || Ranks is null || !IsBrowser(DefaultBrowser) ||
+        if (Version != 1 || Ranks is null || !IsBrowser(DefaultBrowser)
+            || AutoLaunchCooldownHours is < DefaultCooldownHours or > MaxCooldownHours ||
             EdgeCap is < 0 or > MaxBrowserTabs || ChromeCap is < 0 or > MaxBrowserTabs)
+            return false;
+
+        var timedChannels = new HashSet<OshiChannelKey>();
+        if (Timings is not null && !Timings.All(timing => timing?.Channel is { } key && key.IsValid()
+            && timedChannels.Add(key) && ValidTiming(timing.RotationMinutes) && ValidTiming(timing.FallbackMinutes)))
             return false;
 
         var groups = new HashSet<string>(StringComparer.Ordinal);
         var channels = new HashSet<OshiChannelKey>();
         return Ranks.All(rank => rank is not null && !string.IsNullOrWhiteSpace(rank.Id) && groups.Add(rank.Id)
+            && (rank.Name is null || rank.Name.Length <= OshiRank.MaxNameLength)
             && rank.Channels is { Length: > 0 } && rank.Channels.All(entry =>
                 entry?.Channel is { } key && key.IsValid() && channels.Add(key)
                 && (entry.Browser is null || IsBrowser(entry.Browser))));

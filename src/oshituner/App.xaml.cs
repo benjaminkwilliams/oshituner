@@ -75,14 +75,23 @@ public partial class App : Application
             return;
         }
 
+        var autoLaunch = e.Args is [AutoLaunch.Argument];
         try
         {
-            MainWindow = new MainWindow();
-            MainWindow.Show();
+            if (autoLaunch && new SettingsStore(new InstallProfile()).Read().Oshi is not { AutoLaunch: true })
+            {
+                Shutdown();
+                return;
+            }
+
+            var desktop = new MainWindow();
+            MainWindow = desktop;
+            if (autoLaunch) desktop.StartInTray();
+            else desktop.Show();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            MessageBox.Show("Could not open this copy of Oshi Tuner. Exit any running copy from the same folder using its tray menu and check your Windows profile permissions.",
+            if (!autoLaunch) MessageBox.Show("Could not open this copy of Oshi Tuner. Exit any running copy from the same folder using its tray menu and check your Windows profile permissions.",
                 "Oshi Tuner", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }

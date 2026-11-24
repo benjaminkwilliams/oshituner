@@ -63,11 +63,18 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         var target = BrowserRegistration.GetTarget(browser);
         if (await QueryAsync(target, "open_watch_channel", login, cancellationToken) is { Status: "complete" }) return;
         cancellationToken.ThrowIfCancellationRequested();
-        if (registration.IsPairedHere(target) && TryOpenBrowserWithoutWindows(target, login)) return;
+        if (registration.IsPairedHere(target) && TryOpenBrowserWithoutWindows(target, "https://www.twitch.tv/" + login)) return;
         throw new InvalidOperationException($"Could not open the channel. Check that the Oshi Tuner extension is loaded in the paired {target.DisplayName} profile.");
     }
 
-    private static bool TryOpenBrowserWithoutWindows(BrowserTarget target, string login)
+    public bool TryLaunchForOshi(string browser)
+    {
+        var target = BrowserRegistration.GetTarget(browser);
+        // Let the paired extension open and mark the Twitch tab after the browser starts.
+        return registration.IsPairedHere(target) && TryOpenBrowserWithoutWindows(target, "about:blank");
+    }
+
+    private static bool TryOpenBrowserWithoutWindows(BrowserTarget target, string address)
     {
         var processes = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(target.ExecutableName));
         try
@@ -75,7 +82,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
             if (processes.Any(process => process.MainWindowHandle != 0) || target.FindExecutable() is not { } executable) return false;
             var start = new ProcessStartInfo(executable);
             start.ArgumentList.Add("--new-window");
-            start.ArgumentList.Add("https://www.twitch.tv/" + login);
+            start.ArgumentList.Add(address);
             using var browser = Process.Start(start);
             return browser is not null;
         }
@@ -154,7 +161,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         {
             var watchSupported = 0;
             void EnableWatch(int capabilities) => Interlocked.Exchange(ref watchSupported, capabilities);
-            var read = ReadBrowserReplyAsync(input, registration, EnableWatch, lifetime.Token);
+            var read = ReadBrowserReplyAsync(input, registration, target, EnableWatch, lifetime.Token);
             while (registration.IsPairedHere(target))
             {
                 using var pipe = new NamedPipeServerStream(registration.PipeName(target), PipeDirection.InOut, 1,
@@ -177,7 +184,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
                     await WriteFrameBytesAsync(output, request, requestTimeout.Token).ConfigureAwait(false);
                     var response = await read.WaitAsync(requestTimeout.Token).ConfigureAwait(false);
                     if (response is null) break;
-                    read = ReadBrowserReplyAsync(input, registration, EnableWatch, lifetime.Token);
+                    read = ReadBrowserReplyAsync(input, registration, target, EnableWatch, lifetime.Token);
                     await WriteFrameBytesAsync(pipe, response, requestTimeout.Token).ConfigureAwait(false);
                 }
                 catch (IOException) when (!read.IsCompleted) { }
@@ -239,7 +246,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
     }
 
     private static async Task<byte[]?> ReadBrowserReplyAsync(Stream input, BrowserRegistration registration,
-        Action<int> enableWatch, CancellationToken token)
+        BrowserTarget target, Action<int> enableWatch, CancellationToken token)
     {
         while (await ReadFrameAsync(input, token).ConfigureAwait(false) is { } frame)
         {
@@ -250,7 +257,10 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
             {
                 enableWatch(message.RootElement.TryGetProperty("managed", out var managed)
                     && managed.ValueKind == JsonValueKind.True ? 2 : 1);
-                await SignalWatchChangeAsync(registration).ConfigureAwait(false);
+                if (message.RootElement.TryGetProperty("wake", out var wake) && wake.ValueKind == JsonValueKind.True)
+                    registration.RequestDesktopWake(target);
+                else
+                    await SignalWatchChangeAsync(registration).ConfigureAwait(false);
                 continue;
             }
             return frame;
@@ -302,4 +312,4 @@ internal sealed record BrowserWatchSnapshot(string Browser, bool Available, stri
 internal sealed record OshiBrowserTab(int TabId, string Login, string Revision, OshiChannelKey? Channel = null);
 internal sealed record OshiBrowserSnapshot(string Browser, string Status, string[] Logins, OshiBrowserTab[] Tabs);
 internal sealed record OshiBrowserMutation(string Action, string Assignment, int? TabId = null, string? Revision = null,
-    string? ExpectedLogin = null, OshiChannelKey? Channel = null);
+    string? ExpectedLogin = null, OshiChannelKey? Channel = null, int? TabCap = null, bool FocusOnOpen = false);

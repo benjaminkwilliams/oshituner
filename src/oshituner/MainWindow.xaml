@@ -14,6 +14,10 @@
             <MenuItem Header="_Settings">
                 <MenuItem Header="_Theme" Click="Theme_Click" />
                 <MenuItem Header="_Browser Integration" Click="BrowserIntegration_Click" />
+                <MenuItem Header="_Auto Launch" SubmenuOpened="AutoLaunch_Opened">
+                    <MenuItem x:Name="AutoLaunchEnabled" Header="_Enabled" IsCheckable="True" Click="AutoLaunchEnabled_Click" />
+                    <MenuItem x:Name="AutoLaunchCooldown" Header="_Cooldown" />
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="_Windows">
                 <MenuItem Header="_Twitch Status" Click="ShowTwitchStatus_Click" />

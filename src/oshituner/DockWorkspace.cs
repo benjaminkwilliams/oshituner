@@ -29,6 +29,7 @@ internal sealed partial class DockWorkspace : Grid
     private readonly DispatcherTimer _saveDelay = new() { Interval = TimeSpan.FromMilliseconds(300) };
     private bool _stopping;
     private bool _restoring;
+    private bool _trayHidden;
 
     public DockWorkspace(Window shell, TunerSession session, Action<string> reportError)
     {
@@ -83,12 +84,23 @@ internal sealed partial class DockWorkspace : Grid
             }
 
             UpdateLayoutSlots();
-            foreach (var group in _groups.Where(group => group.Dock is null))
-                ShowFloating(group, activate: false);
+            ShowPendingFloatingWindows();
             SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
             SystemEvents.UserPreferenceChanged += OnDisplayPreferenceChanged;
         }
         finally { _restoring = false; }
+    }
+
+    public void SetTrayHidden(bool hidden)
+    {
+        _trayHidden = hidden;
+        if (!hidden) ShowPendingFloatingWindows();
+    }
+
+    private void ShowPendingFloatingWindows()
+    {
+        foreach (var group in _groups.Where(group => group.Dock is null && group.Window is null))
+            ShowFloating(group, activate: false);
     }
 
     public void Stop()

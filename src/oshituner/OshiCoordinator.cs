@@ -14,11 +14,13 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
     private readonly long _timestampOrigin = TimeProvider.System.GetTimestamp();
     private DateTimeOffset Now => _clockOrigin + TimeProvider.System.GetElapsedTime(_timestampOrigin);
     private static readonly TimeSpan ManualCloseDelay = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan BrowserLaunchRetryDelay = TimeSpan.FromMinutes(1);
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(3) };
     private readonly Dictionary<string, BrowserRun> _runs = new(StringComparer.Ordinal);
     private OshiLiveChannel[] _live = [];
     private DateTimeOffset _statusDue;
     private OshiSettings? _statusSettings;
+    private string? _statusAccount;
     private CancellationTokenSource? _run;
     private bool _busy;
 
@@ -60,23 +62,33 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         {
             var now = Now;
             var settings = session.Oshi;
-            if (now >= _statusDue || !Equals(settings, _statusSettings))
+            var account = session.UserId;
+            if (now >= _statusDue || !Equals(settings, _statusSettings) || account != _statusAccount)
             {
                 var keys = settings.Ranks.SelectMany(group => group.Channels).Select(entry => entry.Channel).ToArray();
                 var snapshots = await Task.WhenAll(sources.Select(source => ReadSourceAsync(source, keys, token)));
                 var previous = _live.ToDictionary(channel => channel.Channel);
+                var observedAt = Now;
                 _live = snapshots.SelectMany(items => items).Select(channel =>
-                    channel.Online is null && previous.TryGetValue(channel.Channel, out var seen)
-                        ? channel with { Login = channel.Login ?? seen.Login, StreamId = seen.StreamId }
-                        : channel).ToArray();
+                {
+                    var seen = previous.GetValueOrDefault(channel.Channel);
+                    if (channel.Online is null && seen is not null)
+                        return channel with { Login = channel.Login ?? seen.Login, StreamId = seen.StreamId,
+                            FirstObservedLive = seen.FirstObservedLive };
+                    if (channel.Online != true) return channel;
+                    var first = seen is { Online: not false } && seen.StreamId == channel.StreamId
+                        ? seen.FirstObservedLive : null;
+                    return channel with { FirstObservedLive = first ?? observedAt };
+                }).ToArray();
                 _statusSettings = settings;
+                _statusAccount = account;
                 var degraded = _live.Length != 0 && _live.All(channel => channel.Online is null);
                 _statusDue = Now + (degraded ? DegradedStatusInterval : StatusInterval);
             }
             token.ThrowIfCancellationRequested();
             if (!Equals(settings, session.Oshi)) return;
             if (session.UserId is null) _live = _live.Where(channel => channel.Channel.Provider != "twitch").ToArray();
-            var account = session.UserId;
+            if (account != session.UserId) return;
             var browsers = await discovery.GetOshiTabsAsync(token);
             token.ThrowIfCancellationRequested();
             if (account != session.UserId) return;
@@ -90,22 +102,41 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                 if (browser.Status == "ready") run.Observe(browser, _live, now);
                 var watchingElsewhere = browsers.Where(other => other.Browser != browser.Browser)
                     .SelectMany(other => other.Logins).Concat(reserved).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                var decision = OshiPlanner.Plan(settings, browser, _live, run.Turns, run.Served, run.Deferred,
+                var mayStartBrowser = browser.Status == "browser unavailable";
+                var planningBrowser = mayStartBrowser ? browser with { Status = "ready" } : browser;
+                var decision = OshiPlanner.Plan(settings, planningBrowser, _live, run.Turns, run.Served, run.Deferred,
                     run.FallbackSince, now, watchingElsewhere);
                 run.FallbackSince = decision.FallbackSince;
                 var next = decision.Next is { } due ? DateTimeOffset.UtcNow + (due - now) : (DateTimeOffset?)null;
                 run.State = new(browser.Browser, browser.Status, decision.Reason, next, browser.Tabs);
+                if (mayStartBrowser)
+                {
+                    var reason = run.FocusUntil > now ? "Starting browser" : browser.Status;
+                    if (decision.Action == "open" && now >= run.NextLaunchAttempt)
+                    {
+                        run.NextLaunchAttempt = now + BrowserLaunchRetryDelay;
+                        if (discovery.TryLaunchForOshi(browser.Browser))
+                        {
+                            run.FocusUntil = run.NextLaunchAttempt;
+                            reason = "Starting browser";
+                        }
+                    }
+                    run.State = run.State with { Reason = reason };
+                    continue;
+                }
                 if (decision.Action is null) continue;
 
                 token.ThrowIfCancellationRequested();
                 if (!Equals(settings, session.Oshi) || account != session.UserId) break;
                 var tab = decision.Tab;
                 var revision = Guid.NewGuid().ToString("N");
+                var focus = decision.Action == "open" && run.FocusUntil > now;
                 var mutation = new OshiBrowserMutation(decision.Action, revision, tab?.TabId, tab?.Revision, tab?.Login,
-                    decision.Channel?.Channel);
+                    decision.Channel?.Channel, settings.CapFor(browser.Browser), focus);
                 if (decision.Channel?.Login is { } login) reserved.Add(login);
                 run.Pending = new(tab?.Revision, revision, false, decision.FallbackSince.HasValue);
                 var acknowledged = await discovery.ApplyOshiMutationAsync(browser.Browser, decision.Channel?.Login, mutation, token);
+                if (acknowledged && focus) run.FocusUntil = DateTimeOffset.MinValue;
                 if (acknowledged && decision.Action == "close")
                     run.Pending = run.Pending with { Closed = true };
                 if (!acknowledged) run.State = run.State with { Reason = "Waiting for browser confirmation" };
@@ -140,6 +171,8 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         public Dictionary<string, DateTimeOffset> Deferred { get; } = deferred ?? new(StringComparer.OrdinalIgnoreCase);
         public DateTimeOffset? FallbackSince { get; set; }
         public PendingMutation? Pending { get; set; }
+        public DateTimeOffset NextLaunchAttempt { get; set; }
+        public DateTimeOffset FocusUntil { get; set; }
         public OshiBrowserState State { get; set; } = new(browser, "checking", "", null, []);
 
         public void Observe(OshiBrowserSnapshot snapshot, OshiLiveChannel[] live, DateTimeOffset now)
