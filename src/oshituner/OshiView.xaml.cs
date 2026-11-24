@@ -46,7 +46,7 @@ public partial class OshiView : UserControl
             var next = browser?.Next is { } due ? Math.Max(0, Math.Ceiling((due - DateTimeOffset.UtcNow).TotalMinutes)).ToString() : "";
             var name = target.Id == "edge" ? "Edge" : "Chrome";
             return new BrowserRow(target.Id, state.Settings.DefaultBrowser == target.Id ? name + " (default)" : name,
-                state.Settings.CapFor(target.Id), browser is { Status: "ready" } ? browser.Tabs.Length.ToString() : "—",
+                state.Settings.CapFor(target.Id), browser is { Status: "ready" } ? (browser.Tabs.Length + browser.ReservedSlots).ToString() : "—",
                 state.Running ? browser?.Reason ?? "Checking" : "Paused", next);
         }).ToArray();
         if (Browsers.ItemsSource is not BrowserRow[] previous || !browsers.SequenceEqual(previous))

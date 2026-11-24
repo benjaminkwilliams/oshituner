@@ -106,16 +106,46 @@ chrome.runtime.onMessage?.addListener((message, sender) => {
   scheduleTabChange();
 });
 
+function reconcileManagedTab(stored, id, tab) {
+  const mark = stored[id];
+  if (!mark) return false;
+  if (tab) {
+    const login = channelLogin({ url: tab.url });
+    if (tab.pendingUrl && channelLogin(tab) !== login) return false;
+    if (login && login === mark.login) {
+      if (!mark.pendingUntil) return false;
+      delete mark.pendingUntil;
+      delete mark.previousLogin;
+      return true;
+    }
+    if (mark.pendingUntil > Date.now() && (!login || login === mark.previousLogin)) return false;
+    if (login) {
+      stored[id] = { scope: mark.scope, login, revision: crypto.randomUUID().replaceAll("-", "") };
+      return true;
+    }
+    if (tab.status !== "complete") return false;
+  }
+  delete stored[id];
+  return true;
+}
+
 async function readManagedTabs(scope, channels) {
   const { [managedTabKey]: stored = {} } = await chrome.storage.session.get(managedTabKey);
-  const tabs = Object.entries(stored).flatMap(([tabId, mark]) => {
-    const current = channels.find(({ tab }) => tab.id === Number(tabId));
-    return current?.login === mark.login && mark.scope === scope
-      ? [{ tabId: Number(tabId), login: mark.login, revision: mark.revision, channel: mark.channel }] : [];
+  const visible = new Map(channels.map(({ tab, login }) => [tab.id, { tab, login }]));
+  const ownedIds = Object.keys(stored).filter(id => stored[id].scope === scope);
+  const changed = await Promise.all(ownedIds.map(async id => {
+    const tab = visible.get(Number(id))?.tab ?? await chrome.tabs.get(Number(id)).catch(() => undefined);
+    return reconcileManagedTab(stored, id, tab);
+  }));
+  if (changed.some(Boolean)) await saveManagedTabs(stored);
+  const tabs = ownedIds.flatMap(id => {
+    const mark = stored[id];
+    const current = visible.get(Number(id));
+    return mark && current?.login === mark.login && channelLogin({ url: current.tab.url }) === mark.login
+      ? [{ tabId: Number(id), login: mark.login, revision: mark.revision, channel: mark.channel }] : [];
   });
   const confirmed = new Set(tabs.map(tab => tab.tabId));
-  const pending = Object.entries(stored).filter(([id, mark]) => mark.scope === scope &&
-    mark.pendingUntil > Date.now() && !confirmed.has(Number(id))).length;
+  const pending = ownedIds.map(Number).filter(id => stored[id] && !confirmed.has(id));
   return { stored, tabs, pending };
 }
 
@@ -128,7 +158,7 @@ async function managedCommand(request) {
     const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
     const extensionVersion = chrome.runtime.getManifest?.().version;
     return logins.length <= 500 && tabs.length <= maxManagedTabs
-      ? { status: "complete", logins, managedTabs: tabs, windowCount: windows.length, extensionVersion,
+      ? { status: "complete", logins, managedTabs: tabs, windowCount: windows.length, extensionVersion, reservedTabIds: pending,
           recoveryEvents: recoveryEvents.filter(event => Date.now() - event.receivedAt <= 60_000)
             .map(({ id, phase, login }) => ({ id, phase, login })) }
       : { status: "partial", logins: [] };
@@ -174,7 +204,7 @@ async function managedCommand(request) {
       return { status: "complete", logins: [], reason: "existing_unmanaged" };
     }
     // Count in-flight opens even before Chromium exposes their new Twitch URLs.
-    if (tabs.length + pending >= cap) return reject("capacity");
+    if (tabs.length + pending.length >= cap) return reject("capacity");
     if (existing.length) {
       if (existing.length > 1) return reject("duplicate");
       const { tab } = existing[0];
@@ -208,7 +238,8 @@ async function managedCommand(request) {
       delete stored[tabId];
     } else {
       await chrome.tabs.update(tabId, { url: "https://www.twitch.tv/" + login });
-      stored[tabId] = { scope: request.scope, login, revision: assignment, channel };
+      stored[tabId] = { scope: request.scope, login, revision: assignment, channel, previousLogin: expectedLogin,
+        pendingUntil: Date.now() + 5000 };
     }
   }
   await saveManagedTabs(stored);
@@ -221,19 +252,12 @@ function queueManaged(operation) {
   return next;
 }
 
-function releaseManaged(tabId, url, removed = false) {
+function updateManaged(tabId, removed = false) {
   void queueManaged(async () => {
     const { [managedTabKey]: stored = {} } = await chrome.storage.session.get(managedTabKey);
-    const mark = stored[tabId];
-    if (!mark || (url && channelLogin({ url }) === mark.login)) return;
-    if (!removed) {
-      const current = await chrome.tabs.get(tabId);
-      if (channelLogin(current) === mark.login) return;
-      const address = current.pendingUrl ?? current.url;
-      if (mark.pendingUntil > Date.now() && (!address || address === "about:blank")) return;
-    }
-    delete stored[tabId];
-    await saveManagedTabs(stored);
+    if (!stored[tabId]) return;
+    const current = removed ? undefined : await chrome.tabs.get(tabId).catch(() => undefined);
+    if (reconcileManagedTab(stored, tabId, current)) await saveManagedTabs(stored);
   }).catch(() => {});
 }
 
@@ -258,14 +282,14 @@ function scheduleTabChange() {
 chrome.tabs.onUpdated.addListener((id, change, tab) => {
   if (change.url || change.status === "complete") {
     rememberStartupProof(tab);
-    releaseManaged(id, change.url ?? tab.url);
+    updateManaged(id);
   }
   // Navigation away can omit the new URL when it leaves the permitted host.
   if (change.url || change.status === "complete" || tab.url?.startsWith("https://www.twitch.tv/")) scheduleTabChange();
 });
 chrome.tabs.onCreated.addListener(scheduleTabChange);
-chrome.tabs.onRemoved.addListener(id => { startupProofs.delete(id); releaseManaged(id, undefined, true); scheduleTabChange(); });
-chrome.tabs.onReplaced.addListener((_, oldId) => { startupProofs.delete(oldId); releaseManaged(oldId, undefined, true); scheduleTabChange(); });
+chrome.tabs.onRemoved.addListener(id => { startupProofs.delete(id); updateManaged(id, true); scheduleTabChange(); });
+chrome.tabs.onReplaced.addListener((_, oldId) => { startupProofs.delete(oldId); updateManaged(oldId, true); scheduleTabChange(); });
 chrome.tabs.onActivated.addListener(scheduleTabChange);
 
 function reconnect(port) {

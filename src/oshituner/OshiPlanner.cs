@@ -44,6 +44,7 @@ internal static class OshiPlanner
         var cap = settings.CapFor(browser.Browser);
         if (slots.Length > cap) return new("close", null, slots[0].Tab, "Apply browser tab limit");
         if (cap == 0) return new(null, null, null, "Browser disabled");
+        if (browser.ReservedSlots > 0) return new(null, null, null, "Waiting for the managed tab to finish loading");
 
         var open = browser.Logins.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var candidates = channels.Where(channel => channel.Online == true && channel.Login is { Length: > 0 } login

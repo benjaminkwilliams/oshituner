@@ -3,7 +3,7 @@ using System.Windows.Threading;
 namespace oshituner;
 
 internal sealed record OshiBrowserState(string Browser, string Status, string Reason, DateTimeOffset? Next,
-    OshiBrowserTab[] Tabs);
+    OshiBrowserTab[] Tabs, int ReservedSlots = 0);
 internal sealed record OshiState(OshiSettings Settings, bool Running, OshiBrowserState[] Browsers);
 
 internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery discovery, IOshiLiveSource[] sources, LaunchLog log) : IDisposable
@@ -94,7 +94,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                 var run = RunFor(browser.Browser);
                 ObserveBrowserLifecycle(browser, run);
                 if (browser.Status == "ready") run.Observe(browser, _live, Now);
-                run.State = new(browser.Browser, browser.Status, "Paused", null, browser.Tabs);
+                run.State = new(browser.Browser, browser.Status, "Paused", null, browser.Tabs, browser.ReservedSlots);
             }
             Changed?.Invoke();
         }
@@ -144,7 +144,8 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
     private void LogBrowserChanges(OshiBrowserSnapshot browser, BrowserRun run)
     {
         var previous = run.LastObserved;
-        run.LastObserved = browser;
+        run.LastObserved = browser with { Tabs = browser.Tabs.Concat(previous?.Tabs.Where(tab =>
+            browser.ReservedTabIds?.Contains(tab.TabId) == true) ?? []).ToArray() };
         if (previous is null)
         {
             log.Write("Browser", $"{browser.Browser}: extension connected. {browser.Logins.Length} Twitch channels open, {browser.Tabs.Length} managed tabs.");
@@ -157,8 +158,13 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         if (opened.Length > 0 || left.Length > 0)
             log.Write("Browser", $"{browser.Browser}: Twitch tabs changed." +
                 (left.Length == 0 ? "" : $" Left {left}.") + (opened.Length == 0 ? "" : $" Opened {opened}."));
-        var assigned = Sample(browser.Tabs.Except(previous.Tabs).Select(tab => tab.Login));
-        var released = Sample(previous.Tabs.Except(browser.Tabs).Select(tab => tab.Login));
+        var previousTabs = previous.Tabs.ToDictionary(tab => tab.TabId);
+        var currentTabs = run.LastObserved.Tabs.ToDictionary(tab => tab.TabId);
+        foreach (var tab in browser.Tabs)
+            if (previousTabs.TryGetValue(tab.TabId, out var old) && tab.Login != old.Login)
+                log.Write("Browser", $"{browser.Browser}: managed tab changed from {old.Login} to {tab.Login} and kept its slot.");
+        var assigned = Sample(browser.Tabs.Where(tab => !previousTabs.ContainsKey(tab.TabId)).Select(tab => tab.Login));
+        var released = Sample(previous.Tabs.Where(tab => !currentTabs.ContainsKey(tab.TabId)).Select(tab => tab.Login));
         if (assigned.Length > 0 || released.Length > 0)
             log.Write("Browser", $"{browser.Browser}: managed tabs changed." +
                 (released.Length == 0 ? "" : $" Released {released}.") + (assigned.Length == 0 ? "" : $" Assigned {assigned}."));
@@ -240,14 +246,14 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                             if (startup.IsFallback) run.FallbackSince = null;
                             log.Write("Oshi", $"{browser.Browser}: managed startup stream {startup.Login}.");
                         }
-                        run.State = new(browser.Browser, browser.Status, "Checking startup stream", null, browser.Tabs);
+                        run.State = new(browser.Browser, browser.Status, "Checking startup stream", null, browser.Tabs, browser.ReservedSlots);
                         continue;
                     }
                 }
                 if (run.LaunchSuspended)
                 {
                     run.RankSkips.Clear();
-                    run.State = new(browser.Browser, browser.Status, "Automatic launches suspended", null, browser.Tabs);
+                    run.State = new(browser.Browser, browser.Status, "Automatic launches suspended", null, browser.Tabs, browser.ReservedSlots);
                     continue;
                 }
                 var watchingElsewhere = browsers.Where(other => other.Browser != browser.Browser)
@@ -266,13 +272,13 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                     run.RankSkips = skips;
                 }
                 var next = decision.Next is { } due ? DateTimeOffset.UtcNow + (due - now) : (DateTimeOffset?)null;
-                var statusSummary = $"{browser.Browser}: {browser.Status}; {browser.Tabs.Length}/{settings.CapFor(browser.Browser)} managed, {browser.Logins.Length} Twitch channels.";
+                var statusSummary = $"{browser.Browser}: {browser.Status}; {browser.Tabs.Length + browser.ReservedSlots}/{settings.CapFor(browser.Browser)} managed, {browser.Logins.Length} Twitch channels.";
                 if (run.LastStatusSummary != statusSummary)
                 {
                     log.Write("Browser", statusSummary);
                     run.LastStatusSummary = statusSummary;
                 }
-                run.State = new(browser.Browser, browser.Status, decision.Reason, next, browser.Tabs);
+                run.State = new(browser.Browser, browser.Status, decision.Reason, next, browser.Tabs, browser.ReservedSlots);
                 if (mayStartBrowser)
                 {
                     var reason = browser.Status;
@@ -363,8 +369,10 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         public void Observe(OshiBrowserSnapshot snapshot, OshiLiveChannel[] live, DateTimeOffset now)
         {
             var byTab = snapshot.Tabs.ToDictionary(tab => tab.TabId);
+            var reserved = snapshot.ReservedTabIds ?? [];
             foreach (var tab in _previous)
             {
+                if (reserved.Contains(tab.TabId)) continue;
                 if (byTab.TryGetValue(tab.TabId, out var current) && current.Revision == tab.Revision) continue;
                 Turns.Remove(tab.TabId);
                 var expected = Pending is { } pending && tab.Revision == pending.PreviousRevision &&
@@ -390,8 +398,8 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
             }
             if (Pending is { IsFallback: true } fallback && snapshot.Tabs.Any(tab => tab.Revision == fallback.Revision))
                 FallbackSince = null;
-            _previous = snapshot.Tabs;
-            Pending = null;
+            _previous = snapshot.Tabs.Concat(_previous.Where(tab => reserved.Contains(tab.TabId))).ToArray();
+            if (reserved.Length == 0) Pending = null;
         }
     }
 }

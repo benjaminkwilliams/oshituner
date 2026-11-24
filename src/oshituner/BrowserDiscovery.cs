@@ -55,7 +55,9 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
             tabs.All(tab => tab is not null && tab.TabId >= 0 && Guid.TryParseExact(tab.Revision, "N", out _) &&
                 tab.Login is not null && reply.Logins.Contains(tab.Login, StringComparer.OrdinalIgnoreCase))
             ? new(target.Id, "ready", reply.Logins, tabs, reply.WindowCount is >= 0 ? reply.WindowCount : null,
-                reply.ExtensionVersion is { Length: <= 24 } version && System.Version.TryParse(version, out _) ? version : null, recoveries)
+                reply.ExtensionVersion is { Length: <= 24 } version && System.Version.TryParse(version, out _) ? version : null, recoveries,
+                reply.ReservedTabIds is { Length: <= OshiSettings.MaxBrowserTabs } reserved
+                    ? reserved.Where(id => id >= 0 && tabs.All(tab => tab.TabId != id)).Distinct().ToArray() : [])
             : new(target.Id, !registration.IsPairedHere(target) ? "unpaired"
                 : reply?.Status == "unavailable" ? "update extension" : "browser unavailable", [], []);
     }
@@ -96,7 +98,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
                 while (true)
                 {
                     var snapshot = await GetOshiTabsAsync(target, confirmation.Token);
-                    if (snapshot.Tabs.Any(tab => tab.Channel == channel &&
+                    if (snapshot.Tabs.Any(tab => (tab.Channel is null || tab.Channel == channel) &&
                         string.Equals(tab.Login, login, StringComparison.OrdinalIgnoreCase))) return true;
                     await Task.Delay(250, confirmation.Token);
                 }
@@ -403,14 +405,17 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
 
     private sealed record BrowserReply(int Version, string Id, string Status, string[] Logins, string[]? ActiveLogins = null,
         OshiBrowserTab[]? ManagedTabs = null, string? Reason = null, int? WindowCount = null, string? ExtensionVersion = null,
-        BrowserRecoveryEvent[]? RecoveryEvents = null);
+        BrowserRecoveryEvent[]? RecoveryEvents = null, int[]? ReservedTabIds = null);
 }
 
 internal sealed record BrowserGiftResult(string Status, string[] Logins);
 internal sealed record BrowserWatchSnapshot(string Browser, bool Available, string[] Logins, string[] ActiveLogins);
 internal sealed record OshiBrowserTab(int TabId, string Login, string Revision, OshiChannelKey? Channel = null);
 internal sealed record OshiBrowserSnapshot(string Browser, string Status, string[] Logins, OshiBrowserTab[] Tabs, int? WindowCount = null,
-    string? ExtensionVersion = null, BrowserRecoveryEvent[]? RecoveryEvents = null);
+    string? ExtensionVersion = null, BrowserRecoveryEvent[]? RecoveryEvents = null, int[]? ReservedTabIds = null)
+{
+    public int ReservedSlots => ReservedTabIds?.Length ?? 0;
+}
 internal sealed record BrowserRecoveryEvent(string Id, string Phase, string Login);
 internal sealed record OshiBrowserMutation(string Action, string Assignment, int? TabId = null, string? Revision = null,
     string? ExpectedLogin = null, OshiChannelKey? Channel = null, int? TabCap = null, bool FocusOnOpen = false);
