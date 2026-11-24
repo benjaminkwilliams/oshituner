@@ -25,7 +25,8 @@ internal sealed record FollowedChannelRow(
     bool SubscriptionCheckStale = false,
     bool BrowserTabOpen = false,
     bool EdgeAvailable = false,
-    bool ChromeAvailable = false)
+    bool ChromeAvailable = false,
+    bool? Managed = null)
 {
     [JsonIgnore]
     public string RankName { get; init; } = "";
@@ -36,6 +37,14 @@ internal sealed record FollowedChannelRow(
     public bool Watching => IsLive && BrowserTabOpen;
     public bool CanOpenWatch => IsLive && !BrowserTabOpen;
     public string WatchStatus => Watching ? "Watching" : CanOpenWatch ? "Watch" : "";
+    [JsonIgnore]
+    public string WatchLabel => Watching ? Managed switch
+    {
+        true => "Watching · Managed",
+        false => "Watching · Unmanaged",
+        null => "Watching · Unknown"
+    } : WatchStatus;
+
     public string Status => Online is true ? "LIVE" : Online is false ? "Offline" : "Unknown";
     public string SubscriptionDetail => SubscriptionCheckStale ? "Twitch could not verify this subscription on the last refresh."
         : Gifted == true ? "Gifted Twitch subscription" : Subbed is null ? "Unknown" : SubscriptionStatus;

@@ -6,6 +6,7 @@ namespace oshituner;
 
 internal sealed partial class TunerSession
 {
+    private Dictionary<string, bool> _watchManagement = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _watchLogins = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _unresolvedWatchLogins = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FollowedChannelRow> _watchOnlyRows = new(StringComparer.OrdinalIgnoreCase);
@@ -151,6 +152,22 @@ internal sealed partial class TunerSession
             || exception is OperationCanceledException && !token.IsCancellationRequested) { }
     }
 
+    public void UpdateWatchManagement(OshiBrowserSnapshot[] snapshots)
+    {
+        var ready = snapshots.Where(browser => browser.Status == "ready").ToArray();
+        var management = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        foreach (var login in ready.Where(browser => browser.ReservedSlots == 0).SelectMany(browser => browser.Logins))
+            management[login] = false;
+        foreach (var tab in ready.SelectMany(browser => browser.Tabs))
+            management[tab.Login] = true;
+        if (management.Count == _watchManagement.Count && management.All(entry =>
+            _watchManagement.TryGetValue(entry.Key, out var managed) && managed == entry.Value)) return;
+
+        _watchManagement = management;
+        RebuildChannelProjection();
+        Changed?.Invoke();
+    }
+
     private void RebuildChannelProjection()
     {
         _channelProjection = Sort.Apply(_rows.Concat(_watchOnlyRows.Values)
@@ -158,7 +175,9 @@ internal sealed partial class TunerSession
             {
                 BrowserTabOpen = _watchLogins.Contains(row.Login),
                 EdgeAvailable = _edgeAvailable,
-                ChromeAvailable = _chromeAvailable
+                ChromeAvailable = _chromeAvailable,
+                Managed = row.IsLive && _watchLogins.Contains(row.Login) &&
+                    _watchManagement.TryGetValue(row.Login, out var managed) ? managed : null
             }));
     }
 
@@ -166,6 +185,7 @@ internal sealed partial class TunerSession
     {
         _watchAccess = null;
         _watchLogins.Clear();
+        _watchManagement.Clear();
         _watchOnlyRows.Clear();
         _unresolvedWatchLogins.Clear();
         _channelProjection = null;

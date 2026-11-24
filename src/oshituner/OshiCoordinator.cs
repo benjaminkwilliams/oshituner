@@ -89,6 +89,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         {
             var browsers = await ReadBrowserTabsAsync(token);
             if (_run is not null || token.IsCancellationRequested) return;
+            session.UpdateWatchManagement(browsers);
             foreach (var browser in browsers)
             {
                 var run = RunFor(browser.Browser);
@@ -225,6 +226,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
             if (account != session.UserId) return;
             now = Now;
             if (!Equals(settings, session.Oshi)) return;
+            session.UpdateWatchManagement(browsers);
             var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var browser in browsers.OrderBy(browser => browser.Browser != settings.DefaultBrowser))
             {

@@ -127,11 +127,11 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="WATCH" SortMemberPath="WatchStatus" Width="112">
+                        <DataGridTemplateColumn Header="WATCH" SortMemberPath="WatchLabel" Width="170">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding WatchStatus}">
+                                        <TextBlock Text="{Binding WatchLabel}">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Foreground" Value="{DynamicResource WatchBrush}" />

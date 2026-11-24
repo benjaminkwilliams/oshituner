@@ -17,7 +17,17 @@ public partial class TwitchStatusView
     private bool _finding;
 
     private bool MatchesFilters(object item) => item is FollowedChannelRow row &&
-        _filters.All(filter => Contains(ColumnText(row, filter.Key), filter.Value));
+        _filters.All(filter => MatchesColumn(row, filter.Key, filter.Value));
+
+    private static bool MatchesColumn(FollowedChannelRow row, string column, string value)
+    {
+        if (column == nameof(FollowedChannelRow.WatchLabel))
+        {
+            if (string.Equals(value, "managed", StringComparison.OrdinalIgnoreCase)) return row.Watching && row.Managed == true;
+            if (string.Equals(value, "unmanaged", StringComparison.OrdinalIgnoreCase)) return row.Watching && row.Managed == false;
+        }
+        return Contains(ColumnText(row, column), value);
+    }
 
     private static bool Contains(string text, string value) =>
         text.Contains(value, StringComparison.CurrentCultureIgnoreCase);
@@ -26,7 +36,7 @@ public partial class TwitchStatusView
     {
         nameof(FollowedChannelRow.RankOrder) => row.RankName,
         nameof(FollowedChannelRow.Status) => row.Status,
-        nameof(FollowedChannelRow.WatchStatus) => row.WatchStatus,
+        nameof(FollowedChannelRow.WatchLabel) => row.WatchLabel,
         nameof(FollowedChannelRow.SubscriptionStatus) => row.SubscriptionStatus,
         nameof(FollowedChannelRow.DisplayName) => row.DisplayName,
         nameof(FollowedChannelRow.GameName) => row.GameName,
@@ -121,7 +131,7 @@ public partial class TwitchStatusView
         for (var offset = 1; query.Length != 0 && offset <= rows.Length; offset++)
         {
             var row = rows[(selected + offset) % rows.Length];
-            if (!Contains(ColumnText(row, column.SortMemberPath), query)) continue;
+            if (!MatchesColumn(row, column.SortMemberPath, query)) continue;
             FollowedChannelsGrid.SelectedItem = row;
             FollowedChannelsGrid.ScrollIntoView(row, column);
             ColumnFeedback.Text = $"Found {row.DisplayName}";
