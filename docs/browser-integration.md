@@ -10,17 +10,17 @@ Edge and Chrome are paired separately. Each browser can point to one Oshi Tuner 
 
 During an upgrade, setup briefly pauses the browser registrations for the installation being replaced and restores them afterward. Open browsers reconnect automatically. If a browser helper is locking a development build, MSBuild reports the locked executable before trying to copy files.
 
-The optional installer setup can pair an unpaired browser. Use Settings to move a pairing already held by another copy. Uninstalling a copy removes only the pairings it owns.
+The optional installer setup can pair an unpaired browser. Setup can also add an **Oshi Tuner Browser Integration** Start Menu shortcut. Use Settings to move a pairing already held by another copy. Uninstalling a copy removes only the pairings it owns.
 
 ## Watching Twitch
 
 The WATCH column shows **Watching** for a live channel with an open Twitch channel tab in either paired browser. Watching rows sort first. The browser icons appear on live rows without an open tab. Tab changes update the grid independently of Twitch auto-refresh. A selected Twitch channel can add a temporary row, which stays until the last tab for that channel closes. Choose an available Edge or Chrome icon to open a live channel in its own managed window. The per-browser limit counts managed tabs across every window in that browser, including tabs opened from Twitch Status. Oshi switches ranked streams in the same managed tab and window. To manage an existing stream, put it in a window with one Twitch channel tab, then right-click its Twitch Status row and choose **Manage open stream** for the paired browser.
 
-Reload the unpacked extension after updating the application. The bridge only reads Twitch channel tabs in the browser profile running the extension.
+Reload the unpacked extension after updating the application. The bridge only reads Twitch channel tabs in the browser profile running the extension. Check **Help > About** for the version actually loaded in each browser.
 
 ## Twitch player recovery
 
-When a Twitch channel player displays the English video download cancellation prompt with **Error #1000**, the extension clicks **Reload Player** in that tab. It makes one more attempt after 20 seconds if the same prompt persists. This recovery runs within the affected tab.
+When a Twitch channel player displays the English video download cancellation prompt with **Error #1000**, the extension clicks **Reload Player** in that tab. It makes one more attempt after 20 seconds if the same prompt persists. This recovery runs within the affected tab. **Windows > Log** records the reload attempt, then reports confirmed recovery when playback advances or marks recovery unconfirmed.
 
 ## Gifted channel discovery
 
