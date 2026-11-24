@@ -16,7 +16,7 @@ public partial class TwitchStatusView : UserControl
     internal Action? RefreshRequested { get; set; }
     internal Action<int>? IntervalChanged { get; set; }
     internal Action? EditSortRequested { get; set; }
-    internal Func<FollowedChannelRow, string, Task>? WatchRequested { get; set; }
+    internal Func<FollowedChannelRow, string, bool, Task>? WatchRequested { get; set; }
     internal Action<string>? CopyLoginRequested { get; set; }
     internal Func<FollowedChannelRow, OshiRank[]?>? RankChoices { get; set; }
     internal Action<FollowedChannelRow, string?>? AddOshiRequested { get; set; }
@@ -112,6 +112,9 @@ public partial class TwitchStatusView : UserControl
         if (sender is not ContextMenu menu) return;
         var row = FollowedChannelsGrid.SelectedItem as FollowedChannelRow;
         menu.IsOpen = row is not null;
+        ManageStreamMenu.Visibility = row is { Watching: true } ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var item in ManageStreamMenu.Items.OfType<MenuItem>())
+            item.IsEnabled = item.Tag as string == "edge" ? row?.EdgeAvailable == true : row?.ChromeAvailable == true;
         AddOshiMenu.Items.Clear();
         if (row is null || RankChoices?.Invoke(row) is not { } choices)
         {
@@ -142,9 +145,16 @@ public partial class TwitchStatusView : UserControl
             && WatchRequested is { } watch)
         {
             button.IsEnabled = false;
-            try { await watch(row, browser); }
+            try { await watch(row, browser, false); }
             finally { button.IsEnabled = true; }
         }
+    }
+
+    private async void ManageStream_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { Tag: string browser } && FollowedChannelsGrid.SelectedItem is FollowedChannelRow row
+            && WatchRequested is { } watch)
+            await watch(row, browser, true);
     }
 
     private void EditSort_Click(object sender, RoutedEventArgs e) => EditSortRequested?.Invoke();

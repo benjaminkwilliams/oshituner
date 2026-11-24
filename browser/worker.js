@@ -74,13 +74,16 @@ async function readManagedTabs(scope, channels) {
     return current?.login === mark.login && mark.scope === scope
       ? [{ tabId: Number(tabId), login: mark.login, revision: mark.revision, channel: mark.channel }] : [];
   });
-  return { stored, tabs };
+  const confirmed = new Set(tabs.map(tab => tab.tabId));
+  const pending = Object.entries(stored).filter(([id, mark]) => mark.scope === scope &&
+    mark.pendingUntil > Date.now() && !confirmed.has(Number(id))).length;
+  return { stored, tabs, pending };
 }
 
 async function managedCommand(request) {
   if (!/^[a-f0-9]{64}$/.test(request.scope)) return { status: "unavailable", logins: [] };
   const channels = await channelTabs();
-  const { stored, tabs } = await readManagedTabs(request.scope, channels);
+  const { stored, tabs, pending } = await readManagedTabs(request.scope, channels);
   const logins = [...new Set(channels.map(({ login }) => login))];
   const snapshot = () => logins.length <= 500 && tabs.length <= maxManagedTabs
     ? { status: "complete", logins, managedTabs: tabs }
@@ -89,7 +92,7 @@ async function managedCommand(request) {
 
   const { action, tabId, revision, expectedLogin, assignment, channel } = request.mutation ?? {};
   const login = request.login?.toLowerCase();
-  if (!["open", "switch", "close"].includes(action) || !identifier.test(assignment))
+  if (!["open", "switch", "close", "watch", "adopt"].includes(action) || !identifier.test(assignment))
     return { status: "unavailable", logins: [] };
   if (action !== "close" && (!channelLoginPattern.test(login ?? "") || nonChannelRoutes.has(login) ||
       channel?.provider !== "twitch" || typeof channel.id !== "string" || !/^\d{1,32}$/.test(channel.id)))
@@ -97,34 +100,49 @@ async function managedCommand(request) {
 
   if (tabs.some(tab => tab.revision === assignment))
     return { status: "complete", logins: [] };
-  if (action !== "close" && channels.some(channel => channel.login === login))
+  const existing = channels.filter(candidate => candidate.login === login);
+  if ((action === "open" || action === "switch") && existing.length)
     return { status: "partial", logins: [] };
 
-  if (action === "open") {
+  if (action === "open" || action === "watch" || action === "adopt") {
     const cap = request.mutation.tabCap ?? maxManagedTabs;
     if (!Number.isInteger(cap) || cap < 0 || cap > maxManagedTabs)
       return { status: "unavailable", logins: [] };
-    // The snapshot includes managed tabs from every window in this browser profile.
-    if (tabs.length >= cap) return { status: "partial", logins: [] };
-
-    const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
-    const tabWindows = new Set(channels.map(({ tab }) => tab.windowId));
-    const target = windows.find(window => window.focused && tabWindows.has(window.id))
-      ?? windows.find(window => tabWindows.has(window.id)) ?? windows.find(window => window.focused) ?? windows[0];
-    const url = "https://www.twitch.tv/" + login;
-    if (target) {
-      const focus = request.mutation.focusOnOpen === true;
-      const tab = await chrome.tabs.create({ windowId: target.id, url, active: focus });
+    const reject = reason => ({ status: "partial", logins: [], reason });
+    const owned = existing.find(({ tab }) => tabs.some(mark => mark.tabId === tab.id));
+    if (owned) {
+      if (action === "watch") {
+        await chrome.tabs.update(owned.tab.id, { active: true });
+        await chrome.windows.update(owned.tab.windowId, { focused: true });
+      }
+      return { status: "complete", logins: [] };
+    }
+    if (action === "adopt" && existing.length === 0) return reject("missing");
+    // Count in-flight opens even before Chromium exposes their new Twitch URLs.
+    if (tabs.length + pending >= cap) return reject("capacity");
+    if (existing.length) {
+      if (existing.length > 1) return reject("duplicate");
+      const { tab } = existing[0];
+      if (stored[tab.id]?.scope && stored[tab.id].scope !== request.scope) return reject("owned_elsewhere");
+      if (channels.some(candidate => candidate.tab.id !== tab.id && candidate.tab.windowId === tab.windowId))
+        return reject("shared_window");
+      const current = await chrome.tabs.get(tab.id);
+      if (channelLogin(current) !== login || channelLogin({ url: current.url }) !== login) return reject("missing");
       stored[tab.id] = { scope: request.scope, login, revision: assignment, channel };
       await chrome.storage.session.set({ [managedTabKey]: stored });
-      if (focus) await chrome.windows.update(target.id, { focused: true });
+      await chrome.tabs.update(tab.id, { active: true });
+      if (action === "watch") await chrome.windows.update(tab.windowId, { focused: true });
+      scheduleTabChange();
       return { status: "complete", logins: [] };
     }
 
-    const window = await chrome.windows.create({ url, focused: true });
+    const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+    const url = "https://www.twitch.tv/" + login;
+    const focus = action === "watch" || request.mutation.focusOnOpen === true || windows.length === 0;
+    const window = await chrome.windows.create({ url, focused: focus });
     const tab = window.tabs?.[0] ?? (await chrome.tabs.query({ windowId: window.id, active: true }))[0];
     if (!Number.isInteger(tab?.id)) return { status: "unavailable", logins: [] };
-    stored[tab.id] = { scope: request.scope, login, revision: assignment, channel };
+    stored[tab.id] = { scope: request.scope, login, revision: assignment, channel, pendingUntil: Date.now() + 5000 };
   } else {
     if (!tabs.some(tab => tab.tabId === tabId && tab.revision === revision && tab.login === expectedLogin))
       return { status: "partial", logins: [] };
@@ -140,6 +158,7 @@ async function managedCommand(request) {
     }
   }
   await chrome.storage.session.set({ [managedTabKey]: stored });
+  scheduleTabChange();
   return { status: "complete", logins: [] };
 }
 
@@ -149,10 +168,12 @@ function queueManaged(operation) {
   return next;
 }
 
-function releaseManaged(tabId, url) {
+function releaseManaged(tabId, url, removed = false) {
   void queueManaged(async () => {
     const { [managedTabKey]: stored = {} } = await chrome.storage.session.get(managedTabKey);
-    if (!stored[tabId] || (url && channelLogin({ url }) === stored[tabId].login)) return;
+    const mark = stored[tabId];
+    if (!mark || (url && channelLogin({ url }) === mark.login)) return;
+    if (!removed && mark.pendingUntil > Date.now() && (!url || url === "about:blank")) return;
     delete stored[tabId];
     await chrome.storage.session.set({ [managedTabKey]: stored });
   }).catch(() => {});
@@ -181,8 +202,8 @@ chrome.tabs.onUpdated.addListener((id, change, tab) => {
   if (change.url || change.status === "complete" || tab.url?.startsWith("https://www.twitch.tv/")) scheduleTabChange();
 });
 chrome.tabs.onCreated.addListener(scheduleTabChange);
-chrome.tabs.onRemoved.addListener(id => { releaseManaged(id); scheduleTabChange(); });
-chrome.tabs.onReplaced.addListener((_, oldId) => { releaseManaged(oldId); scheduleTabChange(); });
+chrome.tabs.onRemoved.addListener(id => { releaseManaged(id, undefined, true); scheduleTabChange(); });
+chrome.tabs.onReplaced.addListener((_, oldId) => { releaseManaged(oldId, undefined, true); scheduleTabChange(); });
 chrome.tabs.onActivated.addListener(scheduleTabChange);
 
 function connect() {

@@ -20,12 +20,13 @@ internal sealed partial class TunerSession
     public Task ObserveWatchChangesAsync(Action changed, CancellationToken token) =>
         _browserDiscovery.ObserveWatchChangesAsync(changed, token);
 
-    public async Task WatchChannelAsync(string channelId, string browser, CancellationToken token)
+    public async Task WatchChannelAsync(string channelId, string browser, CancellationToken token, bool existingOnly = false)
     {
         var row = Channels.FirstOrDefault(channel => channel.ChannelId == channelId)
             ?? throw new ArgumentException("The channel is not in the current grid.");
         if (!row.IsLive) throw new InvalidOperationException("Only channels that are live can be opened from WATCH.");
-        await _browserDiscovery.OpenWatchChannelAsync(browser, row.Login, token);
+        await _browserDiscovery.OpenWatchChannelAsync(browser, row.Login, new(row.Provider, row.ChannelId),
+            Oshi.CapFor(browser), existingOnly, token);
         await SyncWatchTabsAsync(token);
     }
 

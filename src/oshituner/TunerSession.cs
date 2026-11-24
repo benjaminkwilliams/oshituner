@@ -43,7 +43,7 @@ internal sealed partial class TunerSession : IDisposable
     private static readonly OshiSettings DefaultOshi = OshiSettings.Create();
     public OshiSettings Oshi => _settings.Oshi ?? DefaultOshi;
 
-    public OshiCoordinator CreateOshiCoordinator() => new(this, _browserDiscovery, [TwitchOshiSource]);
+    public OshiCoordinator CreateOshiCoordinator(LaunchLog log) => new(this, _browserDiscovery, [TwitchOshiSource], log);
 
     public bool CanRank(OshiChannelKey channel) => _rows.Any(row =>
         row.Provider == channel.Provider && row.ChannelId == channel.Id &&

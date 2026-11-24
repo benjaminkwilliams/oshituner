@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Oshi Tuner Browser Integration",
-  "version": "1.0.0.7",
+  "version": "1.0.0.8",
   "description": "Find gifted Twitch subscriptions for the paired Oshi Tuner installation.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAne6Fnxpro/nQWU8yK91yNXLf/cbisGIgxvKnm4tQ3W79tEQsk0kMW7Tx+6SOINMhUJeop4PFtipshIp20V7I3j2ayOd3lbQoJHMJ7KIA2saLaZmZKE5mKW2x5kRHEM8zNP+Mt6fYj5m9TX8mHAXuVm7bSTm3+6wSimTQTdXtmAvyh4V1YBeKnSxeOQnHzsieOc0FSmBnYXQvmPSank+Pp1IVzROQCKCQU/E98yY2/DZVzBl0MXTwp3x1tYBWtC37Qj2YB4oZO0tf3y+uLWpmyLY3x4oe4/pepME9c5DxRoS2VifcSpnUTdlWpz2xNtZ0QyZN9IYB3keS5SRETkhdHwIDAQAB",
   "background": {

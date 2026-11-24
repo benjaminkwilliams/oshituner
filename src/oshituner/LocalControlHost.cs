@@ -126,7 +126,7 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
                 {
                     "import_theme_image" => await control.ImportThemeImageAsync(Required<string>(args, "source"), http.RequestAborted),
                     "watch_channel" => await control.WatchOnUiAsync(Required<string>(args, "channelId"),
-                        Required<string>(args, "browser"), http.RequestAborted),
+                        Required<string>(args, "browser"), http.RequestAborted, Optional<bool?>(args, "existingOnly") ?? false),
                     _ => await control.OnUiAsync(() => Execute(control, method.GetString()!, args), http.RequestAborted)
                 };
                 return id.HasValue ? Results.Json(new { jsonrpc = "2.0", id, result }, Json) : Results.NoContent();
@@ -159,6 +159,7 @@ internal sealed class LocalControlHost(WebApplication app, string key, string to
         {
             case "get_state": return control.GetState();
             case "get_oshi": return control.GetOshi();
+            case "get_log": return control.GetLog();
             case "set_oshi": return control.SetOshi(Required<OshiSettings>(args, "settings"));
             case "set_oshi_running": return control.SetOshiRunning(Required<bool>(args, "running"));
             case "add_oshi_channel": return control.AddOshiChannel(new(Provider(), Required<string>(args, "channelId")),

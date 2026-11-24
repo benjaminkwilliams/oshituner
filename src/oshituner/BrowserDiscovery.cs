@@ -57,14 +57,34 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
         CancellationToken token) => await QueryAsync(BrowserRegistration.GetTarget(browser), "oshi_mutate",
             login, token, mutation) is { Status: "complete" };
 
-    public async Task OpenWatchChannelAsync(string browser, string login, CancellationToken cancellationToken)
+    public async Task OpenWatchChannelAsync(string browser, string login, OshiChannelKey channel, int cap,
+        bool existingOnly, CancellationToken cancellationToken)
     {
         if (!TwitchLogin().IsMatch(login)) throw new ArgumentException("Invalid Twitch channel login.");
         var target = BrowserRegistration.GetTarget(browser);
-        if (await QueryAsync(target, "open_watch_channel", login, cancellationToken) is { Status: "complete" }) return;
+        var mutation = new OshiBrowserMutation(existingOnly ? "adopt" : "watch", Guid.NewGuid().ToString("N"),
+            Channel: channel, TabCap: cap);
+        var reply = await QueryAsync(target, "oshi_mutate", login, cancellationToken, mutation);
         cancellationToken.ThrowIfCancellationRequested();
-        if (registration.IsPairedHere(target) && TryOpenBrowserWithoutWindows(target, "https://www.twitch.tv/" + login)) return;
-        throw new InvalidOperationException($"Could not open the channel. Check that the Oshi Tuner extension is loaded in the paired {target.DisplayName} profile.");
+        if (reply is null && !existingOnly && cap > 0 && TryLaunchForOshi(browser))
+        {
+            for (var attempt = 0; attempt < 10 && reply is null; attempt++)
+            {
+                await Task.Delay(250, cancellationToken);
+                reply = await QueryAsync(target, "oshi_mutate", login, cancellationToken, mutation);
+            }
+        }
+
+        if (reply is { Status: "complete" }) return;
+        throw new InvalidOperationException(reply?.Reason switch
+        {
+            "capacity" => $"{target.DisplayName} has reached the Oshi tab limit of {cap}. Close a managed stream or change the limit.",
+            "missing" => $"The stream tab could not be found in the paired {target.DisplayName} profile.",
+            "duplicate" => $"Close extra copies of this stream in {target.DisplayName} before managing it.",
+            "shared_window" => "Move the stream into its own browser window before managing it.",
+            "owned_elsewhere" => "That stream tab belongs to another Oshi Tuner installation.",
+            _ => $"Could not manage the stream. Reload the Oshi Tuner extension in the paired {target.DisplayName} profile."
+        });
     }
 
     public bool TryLaunchForOshi(string browser)
@@ -304,7 +324,7 @@ internal sealed partial class BrowserDiscovery(BrowserRegistration registration)
     }
 
     private sealed record BrowserReply(int Version, string Id, string Status, string[] Logins, string[]? ActiveLogins = null,
-        OshiBrowserTab[]? ManagedTabs = null);
+        OshiBrowserTab[]? ManagedTabs = null, string? Reason = null);
 }
 
 internal sealed record BrowserGiftResult(string Status, string[] Logins);

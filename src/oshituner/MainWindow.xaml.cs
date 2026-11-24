@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private readonly TwitchStatusView _statusView = new();
     private readonly OshiView _oshiView = new();
     private readonly OshiCoordinator _oshi;
+    private readonly LaunchLog _log;
     private readonly DockWorkspace _workspace;
     private readonly ThemeController _theme;
     private ThemeWindow? _themeWindow;
@@ -42,21 +43,32 @@ public partial class MainWindow : Window
         InitializeComponent();
         _profile = new();
         _instanceLock = _profile.Lock();
+        _log = new(_profile);
+        _log.Write("Startup", $"Oshi Tuner {AppInformation.Current.Version}, Twitch {AppInformation.Current.TwitchVersion}.");
         try { _session = new(_profile, new HttpClient { Timeout = TimeSpan.FromSeconds(15) }); }
-        catch { _instanceLock.Dispose(); throw; }
+        catch (Exception exception)
+        {
+            _log.Write("Startup", $"Could not load the installation settings ({exception.GetType().Name}).");
+            _instanceLock.Dispose();
+            throw;
+        }
+        _log.Write("Startup", "Installation settings loaded.");
 
         _browsers = new(_profile);
         _workspace = new DockWorkspace(this, _session, ReportError);
         _workspace.Register("twitch-status", "Twitch Status", _statusView, _statusView.FocusGrid);
         _workspace.Register("oshi", "Oshi", _oshiView, _oshiView.FocusRanked);
-        _oshi = _session.CreateOshiCoordinator();
+        var logView = new LogView();
+        logView.Attach(_log);
+        _workspace.Register("log", "Log", logView, logView.FocusEntries);
+        _oshi = _session.CreateOshiCoordinator(_log);
         WorkspaceHost.Content = _workspace;
         _theme = new(_session, _workspace, _profile);
         _theme.Apply();
         _control = new(_session, _profile, Dispatcher, ShowAbout, () => _about?.Close(), () => _about is not null,
             ShowClientId, () => _clientIdWindow?.Close(), () => _clientIdWindow is not null,
             _browsers, ShowBrowserIntegration, () => _browserIntegration?.Close(), _workspace,
-            _theme, ShowTheme, () => _themeWindow?.Close(), _oshi);
+            _theme, ShowTheme, () => _themeWindow?.Close(), _oshi, _log);
         _oshiView.SaveRequested = settings => Run(() => _control.SetOshi(settings));
         _oshiView.RunningRequested = running => Run(() => _control.SetOshiRunning(running));
         _oshi.Changed += RenderOshi;
@@ -76,7 +88,11 @@ public partial class MainWindow : Window
         _statusView.WatchRequested = WatchChannelAsync;
         _statusView.CopyLoginRequested = login => Run(() => Clipboard.SetText(login));
         _session.Changed += RenderState;
-        _watchTimer.Tick += (_, _) => UpdateWatchTabs();
+        _watchTimer.Tick += (_, _) =>
+        {
+            _log.Prune();
+            UpdateWatchTabs();
+        };
         _refreshTimer.Tick += (_, _) => { if (!_session.Busy) Run(() => _control.Start("twitch", false)); };
         RenderState();
 
@@ -101,6 +117,8 @@ public partial class MainWindow : Window
 
     private void ShowOshi_Click(object sender, RoutedEventArgs e) => Run(() => _control.OpenPane("oshi"));
 
+    private void ShowLog_Click(object sender, RoutedEventArgs e) => Run(() => _control.OpenPane("log"));
+
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
         Loaded -= Window_Loaded;
@@ -118,10 +136,22 @@ public partial class MainWindow : Window
     {
         if (_desktopStarted) return;
         _desktopStarted = true;
+        _log.Write("Startup", autoLaunch ? "Started in the tray by a paired browser." : "Started from the desktop.");
         _workspace.Restore();
+        _log.Write("Startup", "Workspace restored.");
+        try
+        {
+            foreach (var pairing in _browsers.GetPairings())
+                _log.Write("Browser", $"{pairing.DisplayName} registration: {pairing.State}.");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            _log.Write("Browser", $"Could not inspect browser registrations ({exception.GetType().Name}).");
+        }
         if (autoLaunch) _oshi.SetRunning(true);
         _ = ObserveWatchChangesAsync();
         _watchTimer.Start();
+        _log.Write("Startup", "Browser tab monitoring started.");
         try
         {
             var host = await LocalControlHost.StartAsync(_control, _profile, _session.PreferredPort, _lifetime.Token);
@@ -131,16 +161,24 @@ public partial class MainWindow : Window
                 return;
             }
             _host = host;
+            _log.Write("Startup", $"Local API listening on loopback port {host.Port}.");
             _session.RememberPort(host.Port);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or UnauthorizedAccessException or CryptographicException)
         {
+            _log.Write("Startup", $"Local API unavailable ({exception.GetType().Name}).");
             ControlStatus.Text = "Local API unavailable. The desktop controls are available.";
         }
         if (!_lifetime.IsCancellationRequested && !_session.Busy)
         {
+            var restoreExpected = _session.HasSavedAuthorization;
+            _log.Write("Twitch", "Checking for a saved session.");
             await _session.RestoreAsync();
+            if (_lifetime.IsCancellationRequested) return;
+            var restoreResult = _session.UserId is not null ? $"Saved session connected. {_session.Channels.Count} channels loaded."
+                : restoreExpected ? "Saved session did not connect." : "No saved session connected.";
+            _log.Write("Twitch", restoreResult);
             UpdateWatchTabs();
         }
     }
@@ -200,6 +238,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        _log.Write("Shutdown", "Desktop is exiting.");
         _tray.Dispose();
         _oshi.Changed -= RenderOshi;
         _session.Changed -= RenderOshi;
@@ -232,9 +271,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task WatchChannelAsync(FollowedChannelRow row, string browser)
+    private async Task WatchChannelAsync(FollowedChannelRow row, string browser, bool existingOnly)
     {
-        try { await _control.WatchChannelAsync(row.ChannelId, browser, _lifetime.Token); }
+        try { await _control.WatchChannelAsync(row.ChannelId, browser, _lifetime.Token, existingOnly); }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
         {

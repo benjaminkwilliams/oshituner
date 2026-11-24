@@ -10,7 +10,7 @@ internal sealed class TunerControl(
     Action openAbout, Action closeAbout, Func<bool> isAboutOpen,
     Action openClientId, Action closeClientId, Func<bool> isClientIdOpen,
     BrowserRegistration browsers, Action openBrowserIntegration, Action closeBrowserIntegration, DockWorkspace workspace,
-    ThemeController theme, Action openTheme, Action closeTheme, OshiCoordinator oshi)
+    ThemeController theme, Action openTheme, Action closeTheme, OshiCoordinator oshi, LaunchLog log)
 {
     public TunerState GetState() => new(1, profile.InstallFolder, AppInformation.Current.Version, AppInformation.Current.TwitchVersion,
         [new("twitch", session.ClientId, session.UserId, session.Busy, session.HasSavedAuthorization,
@@ -22,6 +22,8 @@ internal sealed class TunerControl(
             && (!subbed.HasValue || row.Subbed == subbed)).ToArray();
 
     public OshiState GetOshi() => oshi.State;
+
+    public string[] GetLog() => log.Read();
 
     public OshiState SetOshi(OshiSettings settings)
     {
@@ -94,12 +96,27 @@ internal sealed class TunerControl(
         Open(session.ActivationUri ?? throw new InvalidOperationException("Twitch activation is not pending."));
     }
 
-    public Task WatchChannelAsync(string channelId, string browser, CancellationToken token) =>
-        session.WatchChannelAsync(channelId, browser, token);
-
-    public async Task<TunerState> WatchOnUiAsync(string channelId, string browser, CancellationToken token)
+    public async Task WatchChannelAsync(string channelId, string browser, CancellationToken token, bool existingOnly = false)
     {
-        await OnUiAsync(() => WatchChannelAsync(channelId, browser, token), token).Unwrap();
+        var target = BrowserRegistration.GetTarget(browser);
+        var login = session.Channels.FirstOrDefault(channel => channel.ChannelId == channelId)?.Login ?? "unknown channel";
+        var operation = existingOnly ? "Manage open stream" : "Watch";
+        log.Write("Watch", $"{target.DisplayName}: {operation} requested for {login}.");
+        try
+        {
+            await session.WatchChannelAsync(channelId, browser, token, existingOnly);
+            log.Write("Watch", $"{target.DisplayName}: {operation} for {login} confirmed.");
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or System.IO.IOException or UnauthorizedAccessException)
+        {
+            log.Write("Watch", $"{target.DisplayName}: {operation} for {login} failed ({exception.GetType().Name}).");
+            throw;
+        }
+    }
+
+    public async Task<TunerState> WatchOnUiAsync(string channelId, string browser, CancellationToken token, bool existingOnly = false)
+    {
+        await OnUiAsync(() => WatchChannelAsync(channelId, browser, token, existingOnly), token).Unwrap();
         return await OnUiAsync(GetState, token);
     }
 

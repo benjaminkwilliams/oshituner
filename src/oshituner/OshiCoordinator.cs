@@ -6,7 +6,7 @@ internal sealed record OshiBrowserState(string Browser, string Status, string Re
     OshiBrowserTab[] Tabs);
 internal sealed record OshiState(OshiSettings Settings, bool Running, OshiBrowserState[] Browsers);
 
-internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery discovery, IOshiLiveSource[] sources) : IDisposable
+internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery discovery, IOshiLiveSource[] sources, LaunchLog log) : IDisposable
 {
     private static readonly TimeSpan StatusInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DegradedStatusInterval = TimeSpan.FromMinutes(1);
@@ -30,6 +30,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
     public void SetRunning(bool running)
     {
         if (running == (_run is not null)) return;
+        log.Write("Oshi", running ? "Oshi Watch started." : "Oshi Watch paused.");
         if (running)
         {
             foreach (var browser in _runs.Keys.ToArray())
@@ -108,6 +109,12 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                     run.FallbackSince, now, watchingElsewhere);
                 run.FallbackSince = decision.FallbackSince;
                 var next = decision.Next is { } due ? DateTimeOffset.UtcNow + (due - now) : (DateTimeOffset?)null;
+                var statusSummary = $"{browser.Browser}: {browser.Status}; {browser.Tabs.Length}/{settings.CapFor(browser.Browser)} managed, {browser.Logins.Length} Twitch channels.";
+                if (run.LastStatusSummary != statusSummary)
+                {
+                    log.Write("Browser", statusSummary);
+                    run.LastStatusSummary = statusSummary;
+                }
                 run.State = new(browser.Browser, browser.Status, decision.Reason, next, browser.Tabs);
                 if (mayStartBrowser)
                 {
@@ -119,6 +126,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                         {
                             run.FocusUntil = run.NextLaunchAttempt;
                             reason = "Starting browser";
+                            log.Write("Browser", $"{browser.Browser}: starting for {decision.Channel?.Login}.");
                         }
                     }
                     run.State = run.State with { Reason = reason };
@@ -136,6 +144,12 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                 if (decision.Channel?.Login is { } login) reserved.Add(login);
                 run.Pending = new(tab?.Revision, revision, false, decision.FallbackSince.HasValue);
                 var acknowledged = await discovery.ApplyOshiMutationAsync(browser.Browser, decision.Channel?.Login, mutation, token);
+                var stream = tab?.Login is { } previousLogin && decision.Channel?.Login is { } newLogin
+                    ? $"{previousLogin} to {newLogin}" : tab?.Login ?? decision.Channel?.Login;
+                var actionSummary = $"{browser.Browser}: {decision.Action} {stream} ({decision.Reason})";
+                if (acknowledged || run.LastFailedAction != actionSummary)
+                    log.Write("Oshi", $"{actionSummary}: {(acknowledged ? "confirmed" : "not confirmed")}.");
+                run.LastFailedAction = acknowledged ? null : actionSummary;
                 if (acknowledged && focus) run.FocusUntil = DateTimeOffset.MinValue;
                 if (acknowledged && decision.Action == "close")
                     run.Pending = run.Pending with { Closed = true };
@@ -173,6 +187,8 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         public PendingMutation? Pending { get; set; }
         public DateTimeOffset NextLaunchAttempt { get; set; }
         public DateTimeOffset FocusUntil { get; set; }
+        public string? LastStatusSummary { get; set; }
+        public string? LastFailedAction { get; set; }
         public OshiBrowserState State { get; set; } = new(browser, "checking", "", null, []);
 
         public void Observe(OshiBrowserSnapshot snapshot, OshiLiveChannel[] live, DateTimeOffset now)

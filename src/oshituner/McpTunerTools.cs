@@ -10,6 +10,10 @@ internal sealed class McpTunerTools
     public static Task<TunerState> GetState(TunerControl control, CancellationToken cancellationToken) =>
         control.OnUiAsync(control.GetState, cancellationToken);
 
+    [McpServerTool(Name = "get_log"), Description("Read the application log retained for up to 48 hours.")]
+    public static Task<string[]> GetLog(TunerControl control, CancellationToken cancellationToken) =>
+        control.OnUiAsync(control.GetLog, cancellationToken);
+
     [McpServerTool(Name = "get_oshi"), Description("Read saved channel ranks, browser limits, current assignments, and scheduling state.")]
     public static Task<OshiState> GetOshi(TunerControl control, CancellationToken cancellationToken) =>
         control.OnUiAsync(control.GetOshi, cancellationToken);
@@ -68,9 +72,9 @@ internal sealed class McpTunerTools
         string channelId, string provider = "twitch") =>
         control.ChangeAsync(() => control.OpenChannel(provider, channelId), cancellationToken);
 
-    [McpServerTool(Name = "watch_channel"), Description("Open a Twitch grid channel in the paired Edge or Chrome browser.")]
+    [McpServerTool(Name = "watch_channel"), Description("Open a managed Twitch stream in a separate browser window, or manage an existing stream with existingOnly.")]
     public static Task<TunerState> WatchChannel(TunerControl control, CancellationToken cancellationToken,
-        string channelId, string browser) => control.WatchOnUiAsync(channelId, browser, cancellationToken);
+        string channelId, string browser, bool existingOnly = false) => control.WatchOnUiAsync(channelId, browser, cancellationToken, existingOnly);
 
     [McpServerTool(Name = "get_browser_pairings"), Description("Read Edge and Chrome pairing status for this installation.")]
     public static Task<BrowserPairing[]> GetBrowserPairings(TunerControl control, CancellationToken cancellationToken) =>
