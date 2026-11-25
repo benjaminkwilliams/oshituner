@@ -36,6 +36,8 @@
             <Setter Property="Background" Value="{DynamicResource WindowBackground}" />
         </Style>
         <Style TargetType="Label" BasedOn="{StaticResource ThemeControl}" />
+        <Style TargetType="RadioButton" BasedOn="{StaticResource ThemeControl}" />
+        <Style TargetType="CheckBox" BasedOn="{StaticResource ThemeControl}" />
         <Style TargetType="Menu" BasedOn="{StaticResource ThemeControl}">
             <Setter Property="Background" Value="{DynamicResource DockHeaderBackground}" />
         </Style>
