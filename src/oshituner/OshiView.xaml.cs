@@ -62,8 +62,8 @@ public partial class OshiView : UserControl
     {
         if (_state is not { } state || ((IEditableCollectionView)Ranked.Items).IsEditingItem) return;
         var settings = state.Settings;
-        var entries = settings.Ranks.SelectMany((rank, index) => rank.Channels.Select(entry =>
-            CreateRow(entry, rank, index)));
+        var entries = settings.Ranks.SelectMany((rank, index) => rank.Channels.Select((entry, memberIndex) =>
+            CreateRow(entry, rank, index, memberIndex)));
         if (_showUnranked)
         {
             var ranked = settings.Ranks.SelectMany(rank => rank.Channels).Select(entry => entry.Channel).ToHashSet();
@@ -80,11 +80,11 @@ public partial class OshiView : UserControl
         Ranked.ItemsSource = rows;
         Ranked.SelectedItem = rows.FirstOrDefault(row => row.Entry.Channel == selected) ?? rows.FirstOrDefault();
 
-        ChannelRow CreateRow(OshiEntry entry, OshiRank? rank, int index)
+        ChannelRow CreateRow(OshiEntry entry, OshiRank? rank, int index, int memberIndex = 0)
         {
             var timing = settings.TimingFor(entry.Channel);
             var browser = settings.BrowserFor(entry) == "edge" ? "Edge" : "Chrome";
-            return new(entry, rank?.Id, index >= 0 ? (index + 1).ToString() : "", rank?.Name ?? "", entry.Label,
+            return new(entry, rank?.Id, rank?.PositionLabel(index, memberIndex) ?? "", rank?.Name ?? "", entry.Label,
                 entry.Channel.Provider, rank is null ? "" : entry.Browser is null ? $"{browser} (default)" : browser,
                 timing.RotationMinutes ?? OshiSettings.DefaultWatchMinutes,
                 timing.FallbackMinutes ?? OshiSettings.DefaultFallbackMinutes, index >= 0 && index % 2 == 0,
@@ -114,7 +114,7 @@ public partial class OshiView : UserControl
 
         if (Ranked.SelectedItem is not ChannelRow row) return;
         menu.Items.Add(new Separator());
-        var ranks = new MenuItem { Header = "Set Rank" };
+        var ranks = new MenuItem { Header = "Assign Rank" };
         foreach (var (rank, index) in state.Settings.Ranks.Select((rank, index) => (rank, index)))
             ranks.Items.Add(Choice(rank.NumberedName(index), rank.Id == row.RankId, () => SetRank(row, rank.Id)));
         ranks.Items.Add(Option("New rank", () => SetRank(row, Guid.NewGuid().ToString("N"))));

@@ -194,6 +194,8 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         {
             var now = Now;
             var settings = session.Oshi;
+            string StreamLabel(string login, OshiChannelKey? channel) =>
+                settings.RankLabelFor(channel) is { } rank ? $"{login} [{rank}]" : login;
             var account = session.UserId;
             if (now >= _statusDue || !Equals(settings, _statusSettings) || account != _statusAccount)
             {
@@ -253,7 +255,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                         {
                             run.Startup = null;
                             if (startup.IsFallback) run.FallbackSince = null;
-                            log.Write("Oshi", $"{browser.Browser}: managed startup stream {startup.Login}.");
+                            log.Write("Oshi", $"{browser.Browser}: managed startup stream {StreamLabel(startup.Login, startup.Channel)}.");
                         }
                         run.State = new(browser.Browser, browser.Status, "Checking startup stream", null, browser.Tabs, browser.ReservedSlots);
                         continue;
@@ -302,7 +304,7 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                                 settings, account, decision.FallbackSince.HasValue);
                             reserved.Add(startupLogin);
                             reason = "Starting browser";
-                            log.Write("Browser", $"{browser.Browser}: starting for {startupLogin}.");
+                            log.Write("Browser", $"{browser.Browser}: starting for {StreamLabel(startupLogin, selected.Channel)}.");
                         }
                     }
                     run.State = run.State with { Reason = reason };
@@ -319,8 +321,11 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
                 if (decision.Channel?.Login is { } login) reserved.Add(login);
                 run.Pending = new(tab?.Revision, revision, false, decision.FallbackSince.HasValue);
                 var acknowledged = await discovery.ApplyOshiMutationAsync(browser.Browser, decision.Channel?.Login, mutation, token);
-                var stream = tab?.Login is { } previousLogin && decision.Channel?.Login is { } newLogin
-                    ? $"{previousLogin} to {newLogin}" : tab?.Login ?? decision.Channel?.Login;
+                var previousStream = tab is not null ? StreamLabel(tab.Login, tab.Channel) : null;
+                var nextStream = decision.Channel?.Login is { } nextLogin
+                    ? StreamLabel(nextLogin, decision.Channel.Channel) : null;
+                var stream = previousStream is not null && nextStream is not null
+                    ? $"{previousStream} to {nextStream}" : previousStream ?? nextStream;
                 var actionSummary = $"{browser.Browser}: {decision.Action} {stream} ({decision.Reason})";
                 if (acknowledged || run.LastFailedAction != actionSummary)
                     log.Write("Oshi", $"{actionSummary}: {(acknowledged ? "confirmed" : "not confirmed")}.");

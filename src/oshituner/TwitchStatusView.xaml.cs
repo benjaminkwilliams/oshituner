@@ -76,8 +76,9 @@ public partial class TwitchStatusView : UserControl
             var selected = (FollowedChannelsGrid.SelectedItem as FollowedChannelRow)?.ChannelId;
             _renderedRows = session.Channels;
             _renderedRanks = session.Oshi.Ranks;
-            var labels = _renderedRanks.SelectMany((rank, index) => rank.Channels.Select(entry =>
-                (entry.Channel, Name: rank.GridName(index), Order: index)))
+            var labels = _renderedRanks.SelectMany((rank, index) => rank.Channels.Select((entry, memberIndex) =>
+                (entry.Channel, Name: rank.MemberLabel(index, memberIndex))))
+                .Select((label, order) => (label.Channel, label.Name, Order: order))
                 .ToDictionary(entry => entry.Channel);
             _viewModel.FollowedChannels.Clear();
             foreach (var row in _renderedRows)

@@ -23,6 +23,7 @@ internal static class OshiPlanner
         var anyRank = memberOrder.Keys.ToHashSet();
         var timings = (settings.Timings ?? []).ToDictionary(rule => rule.Channel);
         int Priority(OshiLiveChannel? channel) => channel is not null ? rank.GetValueOrDefault(channel.Channel, int.MaxValue) : int.MaxValue;
+        string RankLabel(OshiChannelKey? key) => settings.RankLabelFor(key) ?? "Unranked";
         // The current browser protocol reports Twitch routes. Add provider-qualified routes when the bridge supports another site.
         channels = channels.Where(channel => channel.Channel.Provider == "twitch").ToArray();
         var byChannel = channels.ToDictionary(channel => channel.Channel);
@@ -36,7 +37,7 @@ internal static class OshiPlanner
             var priority = tab.Channel is { } owned ? rank.GetValueOrDefault(owned, int.MaxValue) : Priority(channel);
             var keyForTiming = tab.Channel ?? channel?.Channel;
             var minimumWatch = keyForTiming is { } keyValue ? timings.GetValueOrDefault(keyValue)?.RotationMinutes : null;
-            return (Tab: tab, Channel: channel, Rank: priority, Since: turn.Since,
+            return (Tab: tab, Channel: channel, Key: keyForTiming, Rank: priority, Since: turn.Since,
                 MinimumWatchUntil: turn.Since.AddMinutes(minimumWatch ?? OshiSettings.DefaultWatchMinutes));
         }).OrderByDescending(slot => slot.Channel?.Online == false)
             .ThenByDescending(slot => slot.Rank).ThenBy(slot => slot.Since).ToArray();
@@ -69,14 +70,14 @@ internal static class OshiPlanner
             {
                 var blocker = slots[0];
                 var reason = blocker.Rank < priority ? "it has higher rank" : "the same-rank channel did not go live during this watch";
-                rankSkips.Add(new(channel.Login!, settings.Ranks[priority].GridName(priority), blocker.Tab.Login,
-                    settings.Ranks[blocker.Rank].GridName(blocker.Rank), reason));
+                rankSkips.Add(new(channel.Login!, RankLabel(channel.Channel), blocker.Tab.Login,
+                    RankLabel(blocker.Key), reason));
                 continue;
             }
             var due = peer.MinimumWatchUntil;
             if (due <= now) return new("switch", channel, peer.Tab, "Same-rank channel went live");
-            rankSkips.Add(new(channel.Login!, settings.Ranks[priority].GridName(priority), peer.Tab.Login,
-                settings.Ranks[priority].GridName(priority), "minimum watch time has not elapsed"));
+            rankSkips.Add(new(channel.Login!, RankLabel(channel.Channel), peer.Tab.Login,
+                RankLabel(peer.Key), "minimum watch time has not elapsed"));
             if (next is null || due < next) next = due;
         }
 

@@ -21,7 +21,14 @@ internal sealed record OshiRank(string Id, OshiEntry[] Channels, string? Name = 
     public string NumberedName(int index) => string.IsNullOrWhiteSpace(Name)
         ? $"Rank {index + 1}" : $"Rank {index + 1} · {Name}";
 
-    public string GridName(int index) => string.IsNullOrWhiteSpace(Name) ? $"Rank {index + 1}" : Name;
+    public string PositionLabel(int rankIndex, int memberIndex) => Channels.Length == 1
+        ? $"{rankIndex + 1}" : $"{rankIndex + 1}.{memberIndex + 1}";
+
+    public string MemberLabel(int rankIndex, int memberIndex)
+    {
+        var position = PositionLabel(rankIndex, memberIndex);
+        return string.IsNullOrWhiteSpace(Name) ? $"Rank {position}" : $"Rank {position} · {Name}";
+    }
 }
 
 internal sealed record OshiChannelTiming(OshiChannelKey Channel, int? RotationMinutes = null, int? FallbackMinutes = null);
@@ -51,6 +58,18 @@ internal sealed record OshiSettings(int Version, OshiRank[] Ranks, string Defaul
     }
 
     public static OshiSettings Create() => new(1, [], "edge", 1, 0);
+
+    public string? RankLabelFor(OshiChannelKey? channel)
+    {
+        if (channel is null) return null;
+        for (var rankIndex = 0; rankIndex < Ranks.Length; rankIndex++)
+        {
+            var rank = Ranks[rankIndex];
+            var memberIndex = Array.FindIndex(rank.Channels, entry => entry.Channel == channel);
+            if (memberIndex >= 0) return rank.MemberLabel(rankIndex, memberIndex);
+        }
+        return null;
+    }
 
     public string BrowserFor(OshiEntry channel) => channel.Browser ?? DefaultBrowser;
 
