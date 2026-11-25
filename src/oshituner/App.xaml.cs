@@ -112,6 +112,13 @@ public partial class App : Application
                 options = dialog.Options;
                 source = "Launch Options";
             }
+            else if (e.Args is ["--after-update", var updateFlags] && updateFlags.Length == 4 &&
+                updateFlags.All(flag => flag is '0' or '1'))
+            {
+                options = new(StartInTray: updateFlags[1] == '1', StartOshiWatch: updateFlags[0] == '1',
+                    McpEnabled: updateFlags[2] == '1', RpcEnabled: updateFlags[3] == '1');
+                source = "Installer update";
+            }
             else if (autoLaunch)
             {
                 options = options with { StartInTray = true, StartOshiWatch = true };

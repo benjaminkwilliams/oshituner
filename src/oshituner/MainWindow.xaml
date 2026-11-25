@@ -30,6 +30,7 @@
                 </MenuItem>
             </MenuItem>
             <MenuItem Header="_Help">
+                <MenuItem x:Name="CheckUpdates" Header="Check for _Updates" Click="CheckUpdates_Click" />
                 <MenuItem Header="_About" Click="About_Click" />
                 <MenuItem Header="Copy _Codex configuration" Click="CopyCodexConfiguration_Click" />
             </MenuItem>

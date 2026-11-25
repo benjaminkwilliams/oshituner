@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     private ThemeWindow? _themeWindow;
     private readonly DispatcherTimer _refreshTimer = new() { Interval = TimeSpan.FromMinutes(30) };
     private readonly DispatcherTimer _watchTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private readonly DispatcherTimer _updateTimer = new() { Interval = TimeSpan.FromHours(24) };
     private LocalControlHost? _host;
     private readonly CancellationTokenSource _lifetime = new();
     private Window? _about;
@@ -173,6 +174,7 @@ public partial class MainWindow : Window
         _ = ObserveWatchChangesAsync();
         _watchTimer.Start();
         _log.Write("Startup", "Browser tab monitoring started.");
+        StartUpdateChecks();
         try
         {
             if (_launchOptions.McpEnabled || _launchOptions.RpcEnabled)
@@ -270,6 +272,7 @@ public partial class MainWindow : Window
         _lifetime.Cancel();
         _refreshTimer.Stop();
         _watchTimer.Stop();
+        _updateTimer.Stop();
         var shutdown = _host?.DisposeAsync();
         if (_session.Oshi.AutoLaunch) AutoLaunch.RecordExit(_profile);
         _session.Dispose();

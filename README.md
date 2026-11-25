@@ -37,6 +37,7 @@ Right-click the Oshi grid and choose **Start Oshi Watch**. The regular Start Men
 - Minimize or close the main window to keep Oshi Tuner running in the system tray. Right-click the tray icon and choose **Open Oshi Tuner** to restore the window or **Exit** to quit.
 - Open **Windows > Log** to review startup, browser, and Oshi Watch activity. The per-install `oshi.jsonl` file retains 48 hours across launches. The pane follows new entries when you are at the bottom and keeps your place when you scroll back. It shows the file path and can copy retained entries. The log includes rank decisions and Twitch player reload results.
 - **Help > About** reports the loaded Edge and Chrome extension versions, desktop launch mode, and local protocol activity.
+- **Help > Check for Updates** looks for a newer Windows installer in GitHub Releases. Installed copies also check at startup and every 24 hours. Dev builds can check from Help. Choose **OK** to download and install the update. Oshi Tuner reopens in the same launch mode with Oshi Watch running or paused as before.
 
 ## Control a running copy from Codex
 

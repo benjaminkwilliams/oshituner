@@ -40,7 +40,7 @@ jobs:
         run: |
           if (-not $env:OSHI_TWITCH_CLIENT_ID) { throw 'Configure the public OSHI_TWITCH_CLIENT_ID repository variable before releasing.' }
           ./scripts/Build-WindowsInstaller.ps1 -OutputDirectory "${env:RUNNER_TEMP}/oshi-release"
-      - name: Smoke-test installation and uninstallation
+      - name: Smoke-test installation, updates, and uninstallation
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME.Substring(1)
@@ -63,16 +63,46 @@ jobs:
               -not (Test-Path (Join-Path $install 'ThirdParty/ModelContextProtocol-LICENSE.txt'))) {
             throw 'Installed license files are missing.'
           }
-          $process = Start-Process -FilePath $app -WindowStyle Hidden -Environment @{ TWITCH_CLIENT_ID = $null } -PassThru
-          try {
-            if ($process.WaitForExit(3000)) { throw "Installed app exited with code $($process.ExitCode)." }
-          } finally {
-            if (-not $process.HasExited) {
-              $exitRequest = Start-Process -FilePath $app -ArgumentList '--exit' -WindowStyle Hidden -Wait -PassThru
-              if ($exitRequest.ExitCode -ne 0 -or -not $process.WaitForExit(6000)) {
-                if (-not $process.HasExited) { Stop-Process -InputObject $process }
-                throw 'The installed desktop app did not exit cleanly.'
+          $profileKey = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+            [Text.Encoding]::UTF8.GetBytes($install.ToUpperInvariant()))).ToLowerInvariant()
+          $log = Join-Path $env:LOCALAPPDATA "oshituner/installs/$profileKey/oshi.jsonl"
+          function Read-DesktopStarts {
+            if (!(Test-Path -LiteralPath $log)) { return }
+            Get-Content -LiteralPath $log | ForEach-Object { $_ | ConvertFrom-Json } |
+              Where-Object { $_.category -eq 'Startup' -and $_.message -match '^Installer update,' }
+          }
+
+          foreach ($watch in 0, 1) {
+            $mode = if ($watch) { 'tray' } else { 'windowed' }
+            $running = if ($watch) { 'True' } else { 'False' }
+            $before = @(Read-DesktopStarts).Count
+            $previous = Start-Process -FilePath $app -ArgumentList "--after-update ${watch}${watch}00" -PassThru
+            try {
+              $deadline = [DateTime]::UtcNow.AddSeconds(20)
+              while (@(Read-DesktopStarts).Count -le $before -and [DateTime]::UtcNow -lt $deadline -and !$previous.HasExited) {
+                Start-Sleep -Milliseconds 200
               }
+              if ($previous.HasExited -or @(Read-DesktopStarts).Count -ne ($before + 1)) {
+                throw 'The desktop did not start before the update.'
+              }
+
+              $update = Start-Process -FilePath $setup -ArgumentList ($quiet + @('/SP-', '/OSHIUPDATE=1',
+                "/DIR=`"$install`"", "/OSHIWATCH=$watch", "/OSHITRAY=$watch")) -WindowStyle Hidden -PassThru
+              if (!$update.WaitForExit(120000) -or $update.ExitCode -ne 0) { throw 'The update installer did not finish successfully.' }
+              if (!$previous.WaitForExit(6000)) { throw 'The update installer did not close the previous desktop.' }
+
+              $deadline = [DateTime]::UtcNow.AddSeconds(20)
+              while (@(Read-DesktopStarts).Count -le ($before + 1) -and [DateTime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 200
+              }
+              $starts = @(Read-DesktopStarts)
+              if ($starts.Count -ne ($before + 2) -or $starts[-1].message -notlike "Installer update, $mode. Oshi Watch: $running;*") {
+                throw "The updated desktop did not restore Oshi Watch=$running in $mode mode."
+              }
+            } finally {
+              $exitRequest = Start-Process -FilePath $app -ArgumentList '--exit' -WindowStyle Hidden -Wait -PassThru
+              if (!$previous.HasExited) { Stop-Process -InputObject $previous }
+              if ($exitRequest.ExitCode -ne 0) { throw 'The installed desktop app did not exit cleanly.' }
             }
           }
 

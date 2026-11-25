@@ -18,6 +18,7 @@ OutputBaseFilename=Oshi-Tuner-{#AppVersion}-win-x64-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+CloseApplications=no
 
 [Files]
 Source: "..\scripts\Guard-BrowserHost.ps1"; Flags: dontcopy noencryption
@@ -76,10 +77,31 @@ begin
   end;
 end;
 
+function UpdateFlag(const Name: String): String;
+begin
+  Result := '0';
+  if ExpandConstant('{param:' + Name + '|0}') = '1' then
+    Result := '1';
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  LaunchFlags: String;
+  ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
     ResumeBrowsers;
+  if (CurStep = ssDone) and (UpdateFlag('OSHIUPDATE') = '1') then
+  begin
+    LaunchFlags := UpdateFlag('OSHIWATCH') + UpdateFlag('OSHITRAY') +
+      UpdateFlag('OSHIMCP') + UpdateFlag('OSHIRPC');
+    if not Exec(ExpandConstant('{app}\oshituner.exe'), '--after-update ' + LaunchFlags,
+      ExpandConstant('{app}'), SW_SHOW, ewNoWait, ResultCode) then
+    begin
+      Log('Could not relaunch Oshi Tuner. Windows error ' + IntToStr(ResultCode));
+      MsgBox('Oshi Tuner was updated. Open it from the Start menu.', mbError, MB_OK);
+    end;
+  end;
 end;
 
 procedure DeinitializeSetup;
