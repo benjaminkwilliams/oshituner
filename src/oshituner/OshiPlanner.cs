@@ -49,16 +49,21 @@ internal static class OshiPlanner
 
         var open = browser.Logins.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var candidates = channels.Where(channel => channel.Online == true && channel.Login is { Length: > 0 } login
-            && !open.Contains(login) && (!deferred.TryGetValue(login, out var until) || until <= now)).ToArray();
+            && !open.Contains(login) && !(watchingElsewhere?.Contains(login) ?? false)
+            && (!deferred.TryGetValue(login, out var until) || until <= now)).ToArray();
         var ranked = candidates.Where(channel => rank.ContainsKey(channel.Channel)).OrderBy(Priority)
             .ThenBy(channel => channel.StartedAt ?? channel.FirstObservedLive ?? DateTimeOffset.MaxValue)
             .ThenBy(channel => memberOrder[channel.Channel])
             .ThenBy(channel => channel.Channel.Provider, StringComparer.Ordinal)
             .ThenBy(channel => channel.Channel.Id, StringComparer.Ordinal);
+        var duplicateTab = slots.GroupBy(slot => slot.Tab.Login, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(group => group.OrderBy(slot => slot.Since).ThenBy(slot => slot.Tab.TabId).Skip(1))
+            .FirstOrDefault().Tab;
         DateTimeOffset? next = null;
         var rankSkips = new List<OshiRankSkip>();
         foreach (var channel in ranked)
         {
+            if (duplicateTab is not null) return new("switch", channel, duplicateTab, "Reuse a duplicate managed tab");
             if (slots.Length < cap) return new("open", channel, null, "Ranked channel is live");
             var priority = Priority(channel);
             var replace = slots.FirstOrDefault(slot => slot.Channel?.Online == false || slot.Rank > priority);
@@ -87,8 +92,7 @@ internal static class OshiPlanner
         if (watchingRanked)
             return new(null, null, null, next.HasValue ? "Waiting for minimum watch time" : "Keep current tabs", next, RankSkips: rankSkips.ToArray());
 
-        var fallback = candidates.Where(channel => channel.FallbackEligible && !anyRank.Contains(channel.Channel) &&
-            !(watchingElsewhere?.Contains(channel.Login!) ?? false))
+        var fallback = candidates.Where(channel => channel.FallbackEligible && !anyRank.Contains(channel.Channel))
             .OrderBy(channel => served.GetValueOrDefault((channel.Channel, channel.StreamId), DateTimeOffset.MinValue))
             .ThenBy(channel => channel.StartedAt ?? DateTimeOffset.MaxValue)
             .ThenBy(channel => channel.Channel.Id, StringComparer.Ordinal).FirstOrDefault();

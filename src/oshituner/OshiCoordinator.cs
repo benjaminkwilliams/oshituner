@@ -194,8 +194,12 @@ internal sealed class OshiCoordinator(TunerSession session, BrowserDiscovery dis
         {
             var now = Now;
             var settings = session.Oshi;
-            string StreamLabel(string login, OshiChannelKey? channel) =>
-                settings.RankLabelFor(channel) is { } rank ? $"{login} [{rank}]" : login;
+            string StreamLabel(string login, OshiChannelKey? channel)
+            {
+                channel ??= _live.FirstOrDefault(item => item.Channel.Provider == "twitch" &&
+                    string.Equals(item.Login, login, StringComparison.OrdinalIgnoreCase))?.Channel;
+                return settings.RankLabelFor(channel) is { } rank ? $"{login} [{rank}]" : login;
+            }
             var account = session.UserId;
             if (now >= _statusDue || !Equals(settings, _statusSettings) || account != _statusAccount)
             {
