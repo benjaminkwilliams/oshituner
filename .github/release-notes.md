@@ -1,6 +1,7 @@
-# Oshi Tuner 1.0.0.9
+# Oshi Tuner 1.0.0.10
 
-## Fixes
+## Features
 
-- Oshi Watch keeps one copy of a stream and can reuse a duplicate managed tab for another live ranked channel.
-- Ranked and fallback selections both skip streams already open or reserved in the other browser.
+- The Oshi tab shows a green play indicator while Oshi Watch is running and a red pause indicator when paused.
+- The Twitch Status tab shows a sleeping icon while disconnected and clears it when connected.
+- Both tab indicators update live and expose their current state to screen readers.
