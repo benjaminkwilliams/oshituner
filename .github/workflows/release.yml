@@ -127,6 +127,9 @@ jobs:
       contents: write
       attestations: read
     steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: windows-installer
@@ -138,6 +141,12 @@ jobs:
         run: |
           asset="Oshi-Tuner-${GITHUB_REF_NAME#v}-win-x64-Setup.exe"
           test -f "installer/$asset"
+          notes=".github/release-notes.md"
+          IFS= read -r heading < "$notes"
+          if [[ "$heading" != "# Oshi Tuner ${GITHUB_REF_NAME#v}" ]]; then
+            echo "Review release notes and set their heading to Oshi Tuner ${GITHUB_REF_NAME#v}." >&2
+            exit 1
+          fi
           verify_installer() {
             gh attestation verify "$1" --repo "$GITHUB_REPOSITORY" \
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
@@ -150,5 +159,5 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" "installer/$asset" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --title "Oshi Tuner ${GITHUB_REF_NAME#v}" \
-              --notes "Self-contained Windows x64 installer. Installs for the current Windows user."
+              --notes-file "$notes"
           fi

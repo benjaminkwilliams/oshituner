@@ -53,6 +53,7 @@
 !/.github/workflows/
 !/.github/workflows/build.yml
 !/.github/workflows/release.yml
+!/.github/release-notes.md
 !/.github/skills/
 !/.github/skills/twitch-api/
 !/.github/skills/twitch-api/SKILL.md

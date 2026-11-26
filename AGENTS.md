@@ -18,6 +18,10 @@
 
 Keep plans and implementation tasks as Markdown in the ignored `.plans/` folder. When resuming planned work, open `.plans/README.md` and the relevant task file. Record scope, decisions, progress, and verification there.
 
+## Release descriptions
+
+Review .github/release-notes.md for each versioned release. Set its heading to the release version and summarize user-facing fixes and features. Never include individual channel or streamer names.
+
 ## Standalone `/push`
 
 When the user's entire message is `/push`, it authorizes this sequence:
