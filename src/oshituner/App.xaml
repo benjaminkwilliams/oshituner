@@ -17,6 +17,9 @@
         <SolidColorBrush x:Key="ErrorForeground" Color="#FF8C8C" />
         <SolidColorBrush x:Key="LiveBrush" Color="#FF6666" />
         <SolidColorBrush x:Key="WatchBrush" Color="#8DE89D" />
+        <SolidColorBrush x:Key="OshiWatchTabRunningBackground" Color="#184F2C" />
+        <SolidColorBrush x:Key="OshiWatchTabPausedBackground" Color="#7D2630" />
+        <SolidColorBrush x:Key="OshiWatchTabForeground" Color="White" />
         <SolidColorBrush x:Key="WatchingBrush" Color="#8AC8FF" />
         <SolidColorBrush x:Key="SubBrush" Color="#FFD700" />
         <SolidColorBrush x:Key="InputBackground" Color="#15151A" />

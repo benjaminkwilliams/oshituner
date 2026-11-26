@@ -30,6 +30,8 @@ internal sealed partial class DockWorkspace : Grid
     private bool _stopping;
     private bool _restoring;
     private bool _trayHidden;
+    private bool _oshiWatchRunning;
+    private bool _twitchConnected;
 
     public DockWorkspace(Window shell, TunerSession session, Action<string?> reportError)
     {
@@ -46,6 +48,22 @@ internal sealed partial class DockWorkspace : Grid
 
     public void Register(string id, string title, FrameworkElement view, Action focus) =>
         _panes.Add(id, new Pane(id, title, view, focus));
+
+    public void SetOshiWatchRunning(bool running)
+    {
+        if (_oshiWatchRunning == running) return;
+        _oshiWatchRunning = running;
+        var pane = GetPane("oshi");
+        if (pane.Tab is { } tab) RenderOshiWatchTab(tab, pane.Title);
+    }
+
+    public void SetTwitchConnected(bool connected)
+    {
+        if (_twitchConnected == connected) return;
+        _twitchConnected = connected;
+        var pane = GetPane("twitch-status");
+        if (pane.Tab is { } tab) RenderTwitchStatusTab(tab, pane.Title);
+    }
 
     public void Restore()
     {
@@ -257,6 +275,7 @@ internal sealed partial class DockWorkspace : Grid
         if (index < 0) return;
         group.Panes.RemoveAt(index);
         pane.Group = null;
+        pane.Tab = null;
         if (group.Panes.Count == 0)
         {
             group.Selected = null;
@@ -346,6 +365,7 @@ internal sealed partial class DockWorkspace : Grid
         public FrameworkElement View { get; } = view;
         public Action Focus { get; } = focus;
         public Group? Group { get; set; }
+        public ToggleButton? Tab { get; set; }
     }
 
     private sealed class Group(DockLocation? dock)

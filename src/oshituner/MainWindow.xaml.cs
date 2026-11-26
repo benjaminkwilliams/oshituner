@@ -135,7 +135,12 @@ public partial class MainWindow : Window
         _ = DesktopTray.ObserveExitAsync(_profile, ExitDesktop, message => _log.Write("IPC", message), _lifetime.Token);
     }
 
-    private void RenderOshi() => _oshiView.Render(_control.GetOshi(), _session.Channels, _session.CanRank);
+    private void RenderOshi()
+    {
+        var state = _control.GetOshi();
+        _oshiView.Render(state, _session.Channels, _session.CanRank);
+        _workspace.SetOshiWatchRunning(state.Running);
+    }
 
     private void ShowOshi_Click(object sender, RoutedEventArgs e) => Run("Open pane", () => _control.OpenPane("oshi"));
 
@@ -482,6 +487,7 @@ public partial class MainWindow : Window
     private void RenderState()
     {
         var connected = _session.UserId is not null;
+        _workspace.SetTwitchConnected(connected);
         _clientIdWindow?.SetEditable(!_session.Busy);
         _statusView.Render(_session);
         SetNotice("Twitch", _session.NoticeSeverity, _session.Notice);

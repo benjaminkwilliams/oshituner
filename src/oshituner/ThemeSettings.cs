@@ -104,6 +104,9 @@ internal sealed class ThemeController : IDisposable
         Set("ErrorForeground", light ? 0x9E1A16u : 0xFF8C8Cu, SystemColors.WindowTextColor);
         Set("LiveBrush", light ? 0x9E1A16u : 0xFF6666u, SystemColors.WindowTextColor);
         Set("WatchBrush", light ? 0x17682Du : 0x8DE89Du, SystemColors.WindowTextColor);
+        Set("OshiWatchTabRunningBackground", light ? 0x236634u : 0x184F2Cu, SystemColors.HighlightColor);
+        Set("OshiWatchTabPausedBackground", light ? 0x9B3039u : 0x7D2630u, SystemColors.HighlightColor);
+        Set("OshiWatchTabForeground", 0xFFFFFFu, SystemColors.HighlightTextColor);
         Set("WatchingBrush", light ? 0x17549Cu : 0x8AC8FFu, SystemColors.WindowTextColor);
         Set("SubBrush", light ? 0x765000u : 0xFFD700u, SystemColors.WindowTextColor);
         resources["ApplicationFont"] = contrast ? SystemFonts.MessageFontFamily : theme.ResolveFont();

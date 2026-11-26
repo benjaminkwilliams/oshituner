@@ -101,7 +101,19 @@ internal sealed partial class DockWorkspace
         {
             var tab = new ToggleButton { Content = pane.Title, IsChecked = pane == group.Selected, Padding = new Thickness(8, 3, 8, 3) };
             AutomationProperties.SetName(tab, pane.Title);
-            tab.ToolTip = "Drag to move this pane. Ctrl+Shift+F floats it. Ctrl+Shift plus an arrow docks it; Home returns it to the center.";
+            tab.ToolTip = PaneTabHelp;
+            if (pane.Id == "oshi")
+            {
+                pane.Tab = tab;
+                tab.SetResourceReference(Control.ForegroundProperty, "OshiWatchTabForeground");
+                tab.SetResourceReference(Control.BorderBrushProperty, tab.IsChecked == true ? "OshiWatchTabForeground" : "BorderBrush");
+                RenderOshiWatchTab(tab, pane.Title);
+            }
+            else if (pane.Id == "twitch-status")
+            {
+                pane.Tab = tab;
+                RenderTwitchStatusTab(tab, pane.Title);
+            }
             tab.Click += (_, _) => Select(group, pane, true);
             tab.PreviewMouseLeftButtonDown += (_, args) =>
                 ObserveDrag(tab, args.GetPosition(tab), () => DragPane(tab, pane));
@@ -113,6 +125,52 @@ internal sealed partial class DockWorkspace
         group.Body.Visibility = group.Expanded ? Visibility.Visible : Visibility.Collapsed;
         var content = group.Expanded ? group.Selected?.View : null;
         if (!ReferenceEquals(group.Body.Content, content)) group.Body.Content = content;
+    }
+
+    private const string PaneTabHelp =
+        "Drag to move this pane. Ctrl+Shift+F floats it. Ctrl+Shift plus an arrow docks it; Home returns it to the center.";
+    private static readonly Geometry PlayIcon = Geometry.Parse("M0,0 L8,5 L0,10 Z");
+    private static readonly Geometry PauseIcon = Geometry.Parse("M0,0 H3 V10 H0 Z M5,0 H8 V10 H5 Z");
+
+    private void RenderOshiWatchTab(ToggleButton tab, string title)
+    {
+        var status = _oshiWatchRunning ? "Oshi Watch running" : "Oshi Watch paused";
+        tab.SetResourceReference(Control.BackgroundProperty,
+            _oshiWatchRunning ? "OshiWatchTabRunningBackground" : "OshiWatchTabPausedBackground");
+        SetTabStatus(tab, status);
+        var icon = new Path
+        {
+            Data = _oshiWatchRunning ? PlayIcon : PauseIcon,
+            Width = 9, Height = 11, Stretch = Stretch.Uniform,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        icon.SetResourceReference(Shape.FillProperty, "OshiWatchTabForeground");
+        tab.Content = TabContentWithIcon(title, icon);
+    }
+
+    private void RenderTwitchStatusTab(ToggleButton tab, string title)
+    {
+        SetTabStatus(tab, _twitchConnected ? "Twitch connected" : "Twitch disconnected");
+        tab.Content = _twitchConnected ? title : TabContentWithIcon(title, new TextBlock
+        {
+            Text = "\U0001F4A4",
+            FontFamily = new FontFamily("Segoe UI Emoji")
+        });
+    }
+
+    private static void SetTabStatus(ToggleButton tab, string status)
+    {
+        AutomationProperties.SetItemStatus(tab, status);
+        tab.ToolTip = $"{status}. {PaneTabHelp}";
+    }
+
+    private static StackPanel TabContentWithIcon(string title, FrameworkElement icon)
+    {
+        var content = new StackPanel { Orientation = Orientation.Horizontal };
+        content.Children.Add(new TextBlock { Text = title });
+        icon.Margin = new Thickness(6, 0, 0, 0);
+        content.Children.Add(icon);
+        return content;
     }
 
     private void MoveFromKeyboard(Pane pane, KeyEventArgs args)
