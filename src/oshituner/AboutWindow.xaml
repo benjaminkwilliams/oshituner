@@ -5,7 +5,10 @@
         ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
         Background="{DynamicResource WindowBackground}" FontFamily="{DynamicResource ApplicationFont}" Foreground="{DynamicResource PrimaryForeground}">
     <StackPanel Margin="24">
-        <TextBlock Text="{Binding Name}" FontSize="24" FontWeight="Bold" />
+        <StackPanel Orientation="Horizontal">
+            <Image Width="32" Height="32" Margin="0,0,8,0" Source="/oshituner;component/static/images/png/vtuber-32x32.png" />
+            <TextBlock Text="{Binding Name}" FontSize="24" FontWeight="Bold" />
+        </StackPanel>
         <TextBlock Margin="0,4,0,4" Text="{Binding Version, StringFormat=App version {0}}" />
         <TextBlock Margin="0,0,0,14" Text="{Binding TwitchVersion, StringFormat=Twitch integration {0}}" />
         <TextBlock Text="Browser extensions" FontWeight="Bold" />

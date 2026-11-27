@@ -11,12 +11,15 @@ internal sealed class DesktopTray : IDisposable
 {
     private readonly Forms.ContextMenuStrip _menu = new();
     private readonly Forms.NotifyIcon _icon;
+    private readonly Icon _trayIcon;
 
     public DesktopTray(Dispatcher dispatcher, Action open, Action exit)
     {
         _menu.Items.Add("Open Oshi Tuner", null, (_, _) => dispatcher.InvokeAsync(open));
         _menu.Items.Add("Exit", null, (_, _) => dispatcher.InvokeAsync(exit));
-        _icon = new() { Icon = SystemIcons.Application, Text = "Oshi Tuner", ContextMenuStrip = _menu, Visible = true };
+        using var iconStream = System.Windows.Application.GetResourceStream(new Uri("/oshituner;component/static/images/vtuber.ico", UriKind.Relative)).Stream;
+        _trayIcon = new Icon(iconStream, Forms.SystemInformation.SmallIconSize);
+        _icon = new() { Icon = _trayIcon, Text = "Oshi Tuner", ContextMenuStrip = _menu, Visible = true };
         _icon.DoubleClick += (_, _) => dispatcher.InvokeAsync(open);
     }
 
@@ -24,6 +27,7 @@ internal sealed class DesktopTray : IDisposable
     {
         _icon.Visible = false;
         _icon.Dispose();
+        _trayIcon.Dispose();
         _menu.Dispose();
     }
 

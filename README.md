@@ -1,5 +1,7 @@
 # Oshi Tuner
 
+![Oshi Tuner logo](static/images/png/vtuber-128x128.png)
+
 Oshi Tuner is a Windows app for tracking Twitch channels you follow or subscribe to and watching streams in separate Edge or Chrome windows. Use Twitch Status to see what's live, or let Oshi Watch switch managed streams based on your rankings.
 
 ## Install and connect

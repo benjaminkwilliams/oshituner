@@ -34,6 +34,12 @@
 !/static/
 !/static/images/
 !/static/images/vtuber-viewer-background-4k-v2.png
+!/static/images/vtuber.ico
+!/static/images/png/
+!/static/images/png/vtuber-16x16.png
+!/static/images/png/vtuber-32x32.png
+!/static/images/png/vtuber-48x48.png
+!/static/images/png/vtuber-128x128.png
 !/src/oshituner/ThirdParty/SkiaSharp-*.txt
 !/docs/browser-integration.md
 !/src/oshituner/**/*.cs
